@@ -2,7 +2,7 @@
 
 - 类型：功能新增
 - 状态：草案
-- 背景：v0.1.0 要验证题目到资料依据的核心价值，最快方式是让用户手动输入或粘贴一道题。
+- 背景：v0.1.0 要验证题目到资料依据的核心价值，固定方式是让用户手动输入或粘贴一道题。
 - 当前问题：如果直接做试题 PDF 上传和自动切题，会把核心检索验证拖入复杂文档识别问题。
 - 目标行为：用户可以在项目内手动输入一道题，系统保存题目记录，并触发资料依据检索。
 - 非目标：不包含试题 PDF 上传、自动切题、题目截图、题号自动识别、批量题目管理。
@@ -17,11 +17,12 @@
   - 提交后系统保存题目记录。
   - 提交后触发资料依据检索。
   - 页面能展示检索中、成功和无结果状态。
+  - 固定样例题目文本必须来自 `tests/fixtures/question.txt`；`tests/fixtures/question-source.pdf` 只作为人工摘录来源，不进入自动切题或 OCR 链路。
 - 验证矩阵：
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
-| 输入题目并检索 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector；embedding provider 可用 | 已创建项目，已上传并完成 `tests/fixtures/text-layer.pdf` 索引 | 执行 `make dev`；在题目输入页粘贴固定题目 `tests/fixtures/question.txt` 内容；点击“查找资料依据”；执行 `make verify-db CHECK=question-created FILE=tests/fixtures/question.txt` | 数据库创建 `questions` 记录，页面进入检索流程并展示结果或无结果 | 待验证 | 待填写 | 阻塞 |
+| 输入题目并检索 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector；embedding provider、模型、维度和调用方式已固定并可用 | 已创建项目，已上传并完成 `tests/fixtures/text-layer-material.pdf` 索引；已人工确认 `tests/fixtures/question.txt` 来自 `tests/fixtures/question-source.pdf` | 执行 `make dev`；在题目输入页粘贴固定题目 `tests/fixtures/question.txt` 内容；点击“查找资料依据”；执行 `make verify-db CHECK=question-created FILE=tests/fixtures/question.txt` | 数据库创建 `questions` 记录，页面进入检索流程并展示结果或无结果 | 待验证 | 待填写 | 阻塞 |
 | 空题目拦截 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector | 已执行 `make dev` 并打开题目输入页 | 清空题目文本；点击提交；执行 `make verify-db CHECK=question-count-unchanged` | 页面提示题目不能为空，数据库不创建题目 | 待验证 | 待填写 | 阻塞 |
 | 无资料时提交 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector | 已执行 `make reset-demo`；项目内没有已索引资料 | 执行 `make dev`；输入固定题目；点击“查找资料依据” | 页面提示需先上传并处理资料，不展示伪造结果 | 待验证 | 待填写 | 阻塞 |
 

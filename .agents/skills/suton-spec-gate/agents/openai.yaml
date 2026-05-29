@@ -1,0 +1,4 @@
+interface:
+  display_name: "Suton Spec Gate"
+  short_description: "在推进 Suton 规格或实现前强制核验阻塞、固定语义和验证门禁。"
+  default_prompt: "使用 Suton Spec Gate，在推进 Suton 规格或实现前检查是否存在未固定语义、缺失工具、外部系统未核验或验证门禁阻塞。"

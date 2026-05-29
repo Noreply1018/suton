@@ -12,19 +12,20 @@
 - 配置、接口或数据结构变化：无。
 - 兼容性要求：无特殊要求。
 - 验收标准：
-  - 准备至少 1 份固定有文字层 PDF 作为测试资料。
-  - 准备至少 1 道固定样例题目。
+  - 准备固定有文字层 PDF `tests/fixtures/text-layer-material.pdf` 作为测试资料，并通过 PyMuPDF 文字层提取核验。
+  - 准备固定试题来源 PDF `tests/fixtures/question-source.pdf`。
+  - 准备固定样例题目 `tests/fixtures/question.txt`，并人工确认其来自 `tests/fixtures/question-source.pdf`。
   - 清理旧上传、旧索引、旧数据库记录后执行验证。
   - 真实启动前端、后端和数据库。
   - 完成项目创建、资料上传、资料处理、题目输入、资料依据展示。
-  - 至少 1 条结果可追溯到文件名、页码、原文片段和原页入口。
+  - 至少 1 条结果可追溯到文件名、页码、原文片段和原始 PDF 页码入口。
   - 所有 v0.1.0 条目验证矩阵结论为通过。
   - subagent 审计通过后才能提交发布相关改动。
 - 验证矩阵：
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
-| 最小闭环验证 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector；本地文件系统；embedding provider 可用并记录模型和维度 | 已准备 `tests/fixtures/text-layer.pdf` 和 `tests/fixtures/question.txt`，已执行 `make reset-demo` | 执行 `make migrate`；执行 `make dev`；执行 `make process-demo FILE=tests/fixtures/text-layer.pdf`；执行 `make verify-e2e SCENARIO=minimal-loop QUESTION=tests/fixtures/question.txt`；执行 `make verify-db CHECK=source-lineage` | 返回至少 1 条可追溯资料依据，包含文件名、页码、片段和原页入口 | 待验证 | 待填写 | 阻塞 |
+| 最小闭环验证 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实 FastAPI 后端；真实 Redis/RQ worker；真实 PostgreSQL/pgvector；本地文件系统；embedding provider、模型、维度和调用方式已固定并可用 | 已准备 `tests/fixtures/text-layer-material.pdf`、`tests/fixtures/question-source.pdf` 和 `tests/fixtures/question.txt`，已执行 `make reset-demo` | 执行 `make migrate`；执行 `make dev`；执行 `make process-demo FILE=tests/fixtures/text-layer-material.pdf`；执行 `make verify-e2e SCENARIO=minimal-loop QUESTION=tests/fixtures/question.txt`；执行 `make verify-db CHECK=source-lineage` | 返回至少 1 条可追溯资料依据，包含文件名、页码、片段和原始 PDF 页码入口 | 待验证 | 待填写 | 阻塞 |
 | 文档与行为一致 | 本地仓库；记录 `git status --short --branch`、`git rev-parse HEAD`、`make env-info` 输出 | 所有功能实现完成 | 对照 `docs/spec/v0.1.0/README.md` 和 `items/` 检查实现行为；执行 `make test` | 实际行为不超出或偏离 spec，未完成项未标记完成 | 待验证 | 待填写 | 阻塞 |
 | 审计与提交门禁 | Git 仓库、subagent 工具、GitHub 远端；记录 `git status --short --branch` 和 `git ls-remote --heads origin main` | 所有验证通过 | 派发 subagent 严格审计；审计通过后执行 `git add`、`git commit`、`git push`；再执行 `git ls-remote --heads origin main` | 审计结论通过，Git 远端包含发布提交 | 待验证 | 待填写 | 阻塞 |
 
