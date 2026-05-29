@@ -174,7 +174,7 @@ v0.1.0 固定采用 Web + 后端处理服务 + 数据库 + 文件存储的架构
 PDF 解析：PyMuPDF
 OCR：v0.1.0 不实现
 LLM：v0.1.0 不实现
-Embedding：待用户固定 provider、模型、维度和调用方式后才能推进
+Embedding：DashScope text-embedding-v4，1024 维，OpenAI 兼容接口，凭据为 DASHSCOPE_API_KEY
 Reranker：v0.1.0 不实现
 ```
 
@@ -254,7 +254,7 @@ questions
 
 v0.1.0 固定使用 pgvector 进行 embedding 相似度检索。关键词检索不参与结果排序，不得替代 embedding 检索。
 
-embedding provider、模型、维度和调用方式尚未固定前，检索实现与验证保持阻塞。
+embedding 固定使用阿里云百炼 DashScope `text-embedding-v4`，输出 1024 维 dense float 向量。后端通过 OpenAI Python SDK 调用 DashScope OpenAI 兼容接口 `https://dashscope.aliyuncs.com/compatible-mode/v1` 的 `/embeddings`，凭据从 `DASHSCOPE_API_KEY` 读取。
 
 检索链路固定为：
 
@@ -302,7 +302,7 @@ v0.1.0 只按以下顺序推进：
 2. 支持项目创建和项目页。
 3. 支持资料 PDF 上传到本地 `uploads/`。
 4. 通过 Redis + RQ 调用 PyMuPDF 解析文字层 PDF。
-5. 完成资料 chunk 化和 embedding 入库；embedding provider 未固定前此步保持阻塞。
+5. 完成资料 chunk 化和 embedding 入库，embedding 固定使用 DashScope `text-embedding-v4`。
 6. 支持用户手动输入一道题。
 7. 返回最相关的资料页码、片段和原始 PDF 入口。
 
