@@ -110,4 +110,4 @@ make verify-db CHECK=question-count-unchanged
 
 - v0.1.0 最小闭环已经在真实 Web、真实后端、真实 PostgreSQL/pgvector、真实 Redis/RQ、真实文件系统和真实 DashScope embedding 下通过。
 - 固定资料 PDF、固定题目、资料上传、资料处理、题目输入、来源结果展示、空结果、缺来源过滤、非 PDF 拒绝、损坏 PDF 失败、扫描件不支持均有本地可复现验证。
-- 当前验证记录尚未覆盖最终发布推送后的远端状态；发布门禁中的远端状态必须在本验证记录提交并推送后用 `git ls-remote` 复核。
+- 当前验证记录尚未自证包含本行的最终提交已推送；发布门禁中的远端状态必须在本验证记录提交并推送后用 `git ls-remote` 复核。

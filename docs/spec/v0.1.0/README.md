@@ -152,7 +152,7 @@ make test
 
 - 2026-05-29 本地验证记录：[validation-2026-05-29.md](validation-2026-05-29.md)。
 - 该记录覆盖真实 Web、真实 FastAPI 后端、真实 PostgreSQL/pgvector、真实 Redis/RQ、本地文件系统、固定 fixture、DashScope `text-embedding-v4` 1024 维 embedding、`make test`、`make verify-e2e`、`SCENARIO=minimal-loop make verify-e2e` 和核心 `verify-db` 检查。
-- 发布门禁中的最终远端状态仍必须在验证记录提交并推送后，通过 `git ls-remote --heads origin main` 复核。
+- 发布门禁中的最终远端状态仍必须在包含当前验证记录的提交推送后，通过 `git ls-remote --heads origin main` 复核。
 
 ## 发布门禁
 
