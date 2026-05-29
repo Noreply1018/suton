@@ -65,10 +65,10 @@ export default function Home() {
   );
   const sourcedMatches = useMemo(() => result?.matches.filter(hasSource) ?? [], [result]);
 
-  async function refresh() {
+  async function refresh(preferredProjectId?: number) {
     const nextProjects = await request<Project[]>("/projects");
     setProjects(nextProjects);
-    const nextActive = activeProjectId ?? nextProjects[0]?.id ?? null;
+    const nextActive = preferredProjectId ?? activeProjectId ?? nextProjects[0]?.id ?? null;
     setActiveProjectId(nextActive);
     if (nextActive) {
       setDocuments(await request<DocumentRow[]>(`/projects/${nextActive}/documents`));
@@ -79,6 +79,12 @@ export default function Home() {
 
   useEffect(() => {
     refresh().catch((err: Error) => setError(err.message));
+    const questionId = new URLSearchParams(window.location.search).get("questionId");
+    if (questionId) {
+      request<QuestionResult>(`/questions/${questionId}`)
+        .then(setResult)
+        .catch((err: Error) => setError(err.message));
+    }
     const timer = window.setInterval(() => {
       refresh().catch(() => undefined);
     }, 5000);
@@ -96,7 +102,7 @@ export default function Home() {
         body: JSON.stringify({ name: projectName })
       });
       setActiveProjectId(project.id);
-      await refresh();
+      await refresh(project.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "创建项目失败");
     } finally {

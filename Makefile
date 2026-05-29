@@ -49,10 +49,10 @@ verify-e2e:
 	docker compose up -d postgres redis
 	uv run --project backend python scripts/migrate.py
 	uv run --project backend python scripts/reset_demo.py
-	(uv run --project backend rq worker suton --url "$$REDIS_URL" & worker_pid=$$!; \
-	 uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 & api_pid=$$!; \
-	 pnpm --filter @suton/web dev --hostname 127.0.0.1 & web_pid=$$!; \
-	 cleanup() { kill $$worker_pid $$api_pid $$web_pid 2>/dev/null || true; wait $$worker_pid $$api_pid $$web_pid 2>/dev/null || true; }; \
+	(setsid uv run --project backend rq worker suton --url "$$REDIS_URL" & worker_pid=$$!; \
+	 setsid uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 & api_pid=$$!; \
+	 setsid pnpm --dir frontend exec next dev --hostname 127.0.0.1 & web_pid=$$!; \
+	 cleanup() { kill -TERM -- -$$worker_pid -$$api_pid -$$web_pid 2>/dev/null || true; wait $$worker_pid $$api_pid $$web_pid 2>/dev/null || true; }; \
 	 trap cleanup INT TERM EXIT; \
 	 uv run --project backend python scripts/wait_http.py http://127.0.0.1:8000/health http://127.0.0.1:3000 && \
 	 E2E_BASE_URL=http://127.0.0.1:3000 pnpm exec playwright test; status=$$?; cleanup; exit $$status)

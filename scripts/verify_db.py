@@ -98,6 +98,8 @@ def check_question_count_unchanged() -> None:
 
 def check_project_summary() -> None:
     name = os.getenv("PROJECT_NAME", "高等数学（上）期末复习")
+    expected_documents = os.getenv("EXPECT_DOCUMENT_COUNT")
+    expected_questions = os.getenv("EXPECT_QUESTION_COUNT")
     with connect() as conn:
         row = conn.execute(
             """
@@ -114,6 +116,10 @@ def check_project_summary() -> None:
         ).fetchone()
     require(bool(row), "project summary not found")
     require(row["document_count"] >= 0 and row["question_count"] >= 0, "invalid project summary")
+    if expected_documents is not None:
+        require(row["document_count"] == int(expected_documents), f"document_count expected {expected_documents}, got {row['document_count']}")
+    if expected_questions is not None:
+        require(row["question_count"] == int(expected_questions), f"question_count expected {expected_questions}, got {row['question_count']}")
 
 
 def check_chunk_embeddings() -> None:
