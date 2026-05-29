@@ -1,0 +1,22 @@
+[project]
+name = "suton-backend"
+version = "0.1.0"
+description = "Suton v0.1.0 FastAPI backend"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.122.0",
+  "uvicorn[standard]>=0.38.0",
+  "python-multipart>=0.0.20",
+  "psycopg[binary]>=3.3.0",
+  "redis>=7.0.0",
+  "rq>=2.6.0",
+  "pymupdf>=1.26.0",
+  "openai>=2.8.0",
+  "pydantic>=2.12.0",
+  "httpx>=0.28.0",
+  "pytest>=9.0.0"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["backend/tests", "scripts/tests"]

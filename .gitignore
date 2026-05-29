@@ -5,14 +5,19 @@
 
 __pycache__/
 *.py[cod]
+.venv/
+**/.venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
 
 node_modules/
 .next/
+*.tsbuildinfo
 dist/
 build/
+test-results/
+playwright-report/
 
 uploads/
 storage/
