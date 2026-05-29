@@ -1,7 +1,7 @@
 # PDF 文字提取、切块与索引
 
 - 类型：处理链路变更
-- 状态：草案
+- 状态：已完成
 - 背景：题目溯源依赖可检索的资料内容。v0.1.0 只处理有文字层的 PDF。
 - 当前问题：未解析和索引资料时，题目无法反查到页码和片段。
 - 目标行为：系统对已上传 PDF 使用 PyMuPDF 提取文字层，按页生成基础 chunk；单页文本超过 2000 个 Unicode 字符时只在同一页内按段落切分并合并为不超过 2000 个 Unicode 字符的 chunk，为 chunk 建立 embedding 索引，并将处理状态写回资料记录。
@@ -24,8 +24,8 @@
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
-| 处理有文字层 PDF | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实 FastAPI 后端；真实 Redis/RQ worker；真实 PostgreSQL/pgvector；本地文件系统；embedding provider、模型、维度和调用方式已固定并可用 | 已上传固定样例 PDF `tests/fixtures/text-layer-material.pdf` | 执行 `make dev`；执行 `make process-demo FILE=tests/fixtures/text-layer-material.pdf`；执行 `make verify-db CHECK=document-processed FILE=tests/fixtures/text-layer-material.pdf`；执行 `make verify-db CHECK=chunk-embeddings FILE=tests/fixtures/text-layer-material.pdf` | 写入页面文本、chunks 和 embedding，资料状态为完成 | 待验证 | 待填写 | 阻塞 |
-| 拒绝无文字层 PDF | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实后端；真实 PostgreSQL/pgvector；本地文件系统 | 已上传扫描版或无文字层 PDF `tests/fixtures/scanned.pdf` | 执行 `make dev`；执行 `make process-demo FILE=tests/fixtures/scanned.pdf EXPECT_UNSUPPORTED=1`；执行 `make verify-db CHECK=document-unsupported FILE=tests/fixtures/scanned.pdf` | 资料状态为失败或不支持，并记录原因，不触发 OCR | 待验证 | 待填写 | 阻塞 |
-| chunk 来源完整 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实后端；真实 PostgreSQL/pgvector | 已完成固定样例 PDF 处理 | 执行 `make verify-db CHECK=chunk-source-complete FILE=tests/fixtures/text-layer-material.pdf` | 每个 chunk 都有资料 ID、页码、文本、embedding provider、模型名称和向量维度 | 待验证 | 待填写 | 阻塞 |
+| 处理有文字层 PDF | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实 FastAPI 后端；真实 Redis/RQ worker；真实 PostgreSQL/pgvector；本地文件系统；embedding provider、模型、维度和调用方式已固定并可用 | 已上传固定样例 PDF `tests/fixtures/text-layer-material.pdf` | 执行 `make dev`；执行 `make process-demo FILE=tests/fixtures/text-layer-material.pdf`；执行 `make verify-db CHECK=document-processed FILE=tests/fixtures/text-layer-material.pdf`；执行 `make verify-db CHECK=chunk-embeddings FILE=tests/fixtures/text-layer-material.pdf` | 写入页面文本、chunks 和 embedding，资料状态为完成 | 已验证：PyMuPDF 提取文字层，写入页面文本、chunk 和 DashScope 1024 维 embedding，资料状态完成 | `docs/spec/v0.1.0/validation-2026-05-29.md`；`make process-demo`、`document-processed`、`chunk-embeddings` 通过 | 通过 |
+| 拒绝无文字层 PDF | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实后端；真实 PostgreSQL/pgvector；本地文件系统 | 已上传扫描版或无文字层 PDF `tests/fixtures/scanned.pdf` | 执行 `make dev`；执行 `make process-demo FILE=tests/fixtures/scanned.pdf EXPECT_UNSUPPORTED=1`；执行 `make verify-db CHECK=document-unsupported FILE=tests/fixtures/scanned.pdf` | 资料状态为失败或不支持，并记录原因，不触发 OCR | 已验证：扫描件 fixture 标记为不支持并记录原因，不触发 OCR | `docs/spec/v0.1.0/validation-2026-05-29.md`；`make process-demo FILE=tests/fixtures/scanned.pdf EXPECT_UNSUPPORTED=1` 和 `document-unsupported` 通过 | 通过 |
+| chunk 来源完整 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实后端；真实 PostgreSQL/pgvector | 已完成固定样例 PDF 处理 | 执行 `make verify-db CHECK=chunk-source-complete FILE=tests/fixtures/text-layer-material.pdf` | 每个 chunk 都有资料 ID、页码、文本、embedding provider、模型名称和向量维度 | 已验证：固定资料所有 chunk 具备资料 ID、页码、文本、embedding provider、模型名称和 1024 维度 | `docs/spec/v0.1.0/validation-2026-05-29.md`；`make verify-db CHECK=chunk-source-complete` 通过 | 通过 |
 
 - 风险与回滚：embedding 依赖可能受网络或模型服务影响。若无法可靠使用外部服务，必须标记阻塞，不得把关键词检索伪装为已完成 embedding 检索。

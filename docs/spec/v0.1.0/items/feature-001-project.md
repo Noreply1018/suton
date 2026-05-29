@@ -1,7 +1,7 @@
 # 项目创建与项目页
 
 - 类型：功能新增
-- 状态：草案
+- 状态：已完成
 - 背景：Suton 以课程或考试复习任务为组织单位。用户需要先创建项目，再在项目中上传资料、输入题目并查看资料依据。
 - 当前问题：没有项目容器时，资料、题目和检索结果无法形成清晰边界。
 - 目标行为：用户可以创建一个项目，并在项目页看到该项目的资料数量、题目数量、最近处理状态和核心入口。
@@ -21,8 +21,8 @@
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
-| 正常创建项目 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector；关键变量 `DATABASE_URL` 存在 | 已执行 `make reset-demo` 和 `make migrate`，数据库为空或已清理测试项目 | 执行 `make dev`；在浏览器打开本地 Web；点击“新建项目”；输入“高等数学（上）期末复习”；提交；执行 `make verify-db CHECK=project-created PROJECT_NAME="高等数学（上）期末复习"` | 页面显示新项目，数据库存在对应 `projects` 记录 | 待验证 | 待填写 | 阻塞 |
-| 空名称拦截 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector | 已执行 `make dev` 并打开新建项目入口 | 清空项目名称；点击提交；执行 `make verify-db CHECK=project-count-unchanged` | 页面提示名称不能为空，数据库不新增项目 | 待验证 | 待填写 | 阻塞 |
-| 项目页统计 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector | 已创建项目，且至少有一份资料记录或题目记录 | 执行 `make dev`；打开项目页；执行 `make verify-db CHECK=project-summary PROJECT_NAME="高等数学（上）期末复习"` | 页面展示资料数量、题目数量和处理状态，数值与数据库一致 | 待验证 | 待填写 | 阻塞 |
+| 正常创建项目 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector；关键变量 `DATABASE_URL` 存在 | 已执行 `make reset-demo` 和 `make migrate`，数据库为空或已清理测试项目 | 执行 `make dev`；在浏览器打开本地 Web；点击“新建项目”；输入“高等数学（上）期末复习”；提交；执行 `make verify-db CHECK=project-created PROJECT_NAME="高等数学（上）期末复习"` | 页面显示新项目，数据库存在对应 `projects` 记录 | 已验证：浏览器创建项目成功，数据库存在项目记录 | `docs/spec/v0.1.0/validation-2026-05-29.md`；`make verify-e2e` 与 `SCENARIO=minimal-loop make verify-e2e` 通过 | 通过 |
+| 空名称拦截 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector | 已执行 `make dev` 并打开新建项目入口 | 清空项目名称；点击提交；执行 `make verify-db CHECK=project-count-unchanged` | 页面提示名称不能为空，数据库不新增项目 | 已验证：页面提示项目名称不能为空，数据库不存在空名称项目 | `docs/spec/v0.1.0/validation-2026-05-29.md`；`project-validation` 场景通过；`make verify-db CHECK=project-count-unchanged` 通过 | 通过 |
+| 项目页统计 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector | 已创建项目，且至少有一份资料记录或题目记录 | 执行 `make dev`；打开项目页；执行 `make verify-db CHECK=project-summary PROJECT_NAME="高等数学（上）期末复习"` | 页面展示资料数量、题目数量和处理状态，数值与数据库一致 | 已验证：最小闭环项目展示 1 份资料、1 道题和完成状态，数据库统计一致 | `docs/spec/v0.1.0/validation-2026-05-29.md`；`make verify-db CHECK=project-summary ... EXPECT_DOCUMENT_COUNT=1 EXPECT_QUESTION_COUNT=1` 通过 | 通过 |
 
 - 风险与回滚：项目模型过早复杂化会拖慢 v0.1.0。若实现时范围膨胀，应保留单用户、基础项目模型，移除协作和权限相关字段。

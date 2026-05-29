@@ -148,6 +148,12 @@ make test
 - 没有明确来源的结果不得进入前端列表。
 - 验证前必须清理旧上传、旧索引和旧数据库记录，避免依赖历史状态。
 
+## 当前验证记录
+
+- 2026-05-29 本地验证记录：[validation-2026-05-29.md](validation-2026-05-29.md)。
+- 该记录覆盖真实 Web、真实 FastAPI 后端、真实 PostgreSQL/pgvector、真实 Redis/RQ、本地文件系统、固定 fixture、DashScope `text-embedding-v4` 1024 维 embedding、`make test`、`make verify-e2e`、`SCENARIO=minimal-loop make verify-e2e` 和核心 `verify-db` 检查。
+- 发布门禁中的最终远端状态仍必须在验证记录提交并推送后，通过 `git ls-remote --heads origin main` 复核。
+
 ## 发布门禁
 
 v0.1.0 发布前必须满足：
@@ -167,3 +173,4 @@ v0.1.0 发布前必须满足：
 | 2026-05-28 | 创建 v0.1.0 范围：有文字层 PDF、手动题目输入、最小 embedding 检索、来源结果展示；排除 OCR、自动切题、知识图谱、覆盖分析和引用完整性。 | 用户确认与本地 spec 编写 | 本文档与 `items/` 条目 |
 | 2026-05-29 | 固定 v0.1.0 技术栈为 Next.js/React/Tailwind、FastAPI、PostgreSQL/pgvector、Redis/RQ、PyMuPDF、Playwright；固定资料与试题来源 fixture；当时 embedding provider/model/dimension 仍保持阻塞待用户确认。 | 用户确认与本地 spec 收窄 | 本文档与 `tests/fixtures/` |
 | 2026-05-29 | 固定 embedding 为 DashScope `text-embedding-v4`、1024 维、OpenAI 兼容接口、`DASHSCOPE_API_KEY` 凭据；用户提供 API Key 后已实测返回 1024 维 float embedding。 | 用户确认与本地 API 实测 | DashScope `/embeddings` 返回 `status=200`、`model=text-embedding-v4`、`dimension=1024` |
+| 2026-05-29 | 记录 v0.1.0 真实闭环验证结果；功能条目状态更新为已完成，验证门禁保留最终远端复核待完成。 | 本地真实验证与自动化门禁 | `docs/spec/v0.1.0/validation-2026-05-29.md` |
