@@ -188,6 +188,16 @@ def check_source_lineage() -> None:
 
 
 def check_question_created() -> None:
+    file_arg = os.getenv("FILE")
+    if file_arg:
+        source = Path(file_arg)
+        require(source.exists(), f"question fixture not found: {source}")
+        text = source.read_text(encoding="utf-8").strip()
+        require(
+            scalar("SELECT COUNT(*) AS value FROM questions WHERE text = %s", (text,)) > 0,
+            "question text not found",
+        )
+        return
     require(scalar("SELECT COUNT(*) AS value FROM questions") > 0, "question not found")
 
 

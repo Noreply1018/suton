@@ -47,7 +47,7 @@ test("document-upload：拒绝非 PDF 文件", async ({ page }) => {
   await expect(page.getByText("v0.1.0 只支持上传 PDF 文件")).toBeVisible();
 });
 
-test("source-results：真实最小闭环返回来源结果", async ({ page }) => {
+test("minimal-loop/source-results：真实最小闭环返回来源结果", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Suton" })).toBeVisible();
   await createProject(page, "高等数学（上）期末复习");
