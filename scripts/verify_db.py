@@ -17,17 +17,63 @@ def scalar(sql: str, params: tuple = ()) -> int:
 
 
 def check_schema() -> None:
-    required = {"projects", "documents", "document_pages", "chunks", "questions", "question_matches"}
+    required_tables = {"projects", "documents", "document_pages", "chunks", "questions", "question_matches"}
+    required_columns = {
+        "projects": {"id", "name", "created_at"},
+        "documents": {
+            "id",
+            "project_id",
+            "filename",
+            "content_type",
+            "storage_path",
+            "page_count",
+            "status",
+            "failure_reason",
+            "created_at",
+            "processed_at",
+        },
+        "document_pages": {"id", "document_id", "page_no", "raw_text"},
+        "chunks": {
+            "id",
+            "document_id",
+            "page_id",
+            "page_no",
+            "text",
+            "section_title",
+            "embedding",
+            "embedding_provider",
+            "embedding_model",
+            "embedding_dimension",
+            "embedding_call",
+            "created_at",
+        },
+        "questions": {"id", "project_id", "text", "status", "created_at"},
+        "question_matches": {"id", "question_id", "chunk_id", "score", "rank", "hit_reason", "source_text", "created_at"},
+    }
     with connect() as conn:
-        rows = conn.execute(
+        table_rows = conn.execute(
             """
             SELECT table_name FROM information_schema.tables
             WHERE table_schema = 'public'
             """
         ).fetchall()
-    present = {row["table_name"] for row in rows}
-    missing = required - present
-    require(not missing, f"missing tables: {sorted(missing)}")
+        column_rows = conn.execute(
+            """
+            SELECT table_name, column_name FROM information_schema.columns
+            WHERE table_schema = 'public'
+            """
+        ).fetchall()
+        vector_installed = conn.execute("SELECT COUNT(*) AS value FROM pg_extension WHERE extname = 'vector'").fetchone()["value"]
+    present_tables = {row["table_name"] for row in table_rows}
+    missing_tables = required_tables - present_tables
+    require(not missing_tables, f"missing tables: {sorted(missing_tables)}")
+    present_columns: dict[str, set[str]] = {}
+    for row in column_rows:
+        present_columns.setdefault(row["table_name"], set()).add(row["column_name"])
+    for table, expected_columns in required_columns.items():
+        missing_columns = expected_columns - present_columns.get(table, set())
+        require(not missing_columns, f"missing columns in {table}: {sorted(missing_columns)}")
+    require(vector_installed == 1, "pgvector extension is not installed")
 
 
 def check_project_created() -> None:
