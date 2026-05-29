@@ -152,7 +152,7 @@ make test
 
 - 2026-05-29 本地验证记录：[validation-2026-05-29.md](validation-2026-05-29.md)。
 - 该记录覆盖真实 Web、真实 FastAPI 后端、真实 PostgreSQL/pgvector、真实 Redis/RQ、本地文件系统、固定 fixture、DashScope `text-embedding-v4` 1024 维 embedding、`make test`、`make verify-e2e`、`SCENARIO=minimal-loop make verify-e2e` 和核心 `verify-db` 检查。
-- 发布门禁中的最终远端状态仍必须在包含当前验证记录的提交推送后，通过 `git ls-remote --heads origin main` 复核。
+- 发布门禁中的最终远端状态以执行发布操作后的 `git ls-remote --heads origin main` 命令输出为准；该外部命令证据不要求写回同一个已推送提交，避免提交内容与远端复核形成自引用。
 
 ## 发布门禁
 
@@ -165,6 +165,7 @@ v0.1.0 发布前必须满足：
 - 文档与实际行为一致。
 - 工作区相关改动已完成 subagent 严格审计，且审计结论为通过。
 - 审计通过后提交并推送到远端仓库。
+- 远端状态必须在推送后通过 `git ls-remote --heads origin main` 复核；复核证据是命令输出，不要求再生成一个只用于记录该输出的新提交。
 
 ## Spec 变更记录
 
@@ -173,4 +174,4 @@ v0.1.0 发布前必须满足：
 | 2026-05-28 | 创建 v0.1.0 范围：有文字层 PDF、手动题目输入、最小 embedding 检索、来源结果展示；排除 OCR、自动切题、知识图谱、覆盖分析和引用完整性。 | 用户确认与本地 spec 编写 | 本文档与 `items/` 条目 |
 | 2026-05-29 | 固定 v0.1.0 技术栈为 Next.js/React/Tailwind、FastAPI、PostgreSQL/pgvector、Redis/RQ、PyMuPDF、Playwright；固定资料与试题来源 fixture；当时 embedding provider/model/dimension 仍保持阻塞待用户确认。 | 用户确认与本地 spec 收窄 | 本文档与 `tests/fixtures/` |
 | 2026-05-29 | 固定 embedding 为 DashScope `text-embedding-v4`、1024 维、OpenAI 兼容接口、`DASHSCOPE_API_KEY` 凭据；用户提供 API Key 后已实测返回 1024 维 float embedding。 | 用户确认与本地 API 实测 | DashScope `/embeddings` 返回 `status=200`、`model=text-embedding-v4`、`dimension=1024` |
-| 2026-05-29 | 记录 v0.1.0 真实闭环验证结果；功能条目状态更新为已完成，验证门禁保留最终远端复核待完成。 | 本地真实验证与自动化门禁 | `docs/spec/v0.1.0/validation-2026-05-29.md` |
+| 2026-05-29 | 记录 v0.1.0 真实闭环验证结果；功能条目和验证门禁状态更新为已完成；修正远端复核门禁为推送后的外部命令证据，移除自引用。 | 本地真实验证、自动化门禁、subagent 审计与远端复核 | `docs/spec/v0.1.0/validation-2026-05-29.md` |
