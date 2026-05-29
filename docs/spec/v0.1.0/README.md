@@ -151,18 +151,30 @@ make test
 ## 当前验证记录
 
 - 2026-05-29 本地验证记录：[validation-2026-05-29.md](validation-2026-05-29.md)。
+- v0.1.0 总验收清单：[acceptance-checklist.md](acceptance-checklist.md)。
 - 该记录覆盖真实 Web、真实 FastAPI 后端、真实 PostgreSQL/pgvector、真实 Redis/RQ、本地文件系统、固定 fixture、DashScope `text-embedding-v4` 1024 维 embedding、`make test`、`make verify-e2e`、`SCENARIO=minimal-loop make verify-e2e` 和核心 `verify-db` 检查。
 - 发布门禁中的最终远端状态以执行发布操作后的 `git ls-remote --heads origin main` 命令输出为准；该外部命令证据不要求写回同一个已推送提交，避免提交内容与远端复核形成自引用。
+
+## 门禁辅助工具
+
+v0.1.0 维护时必须优先使用可执行门禁降低人工遗漏：
+
+- `make verify-spec`：检查所有 v0.1.0 item 状态、验证矩阵结论、证据引用和远端复核规则。
+- `make verify-secrets`：扫描 Git 已追踪文本文件，发现疑似真实 API key、token、secret 或 password 时失败。
+- `make evidence-package`：采集脱敏证据包到 `tmp/v0.1.0-evidence-latest.md`，默认包含 Git 状态、HEAD、远端 `main`、`make env-info`、`make verify-spec` 和 `make verify-secrets`。
+- `make evidence-package-with-tests`：在证据包中额外执行并记录 `make test`。
 
 ## 发布门禁
 
 v0.1.0 发布前必须满足：
 
+- 已按 [acceptance-checklist.md](acceptance-checklist.md) 建立总验收清单并逐项取得证据。
 - 所有条目状态为已完成。
 - 所有条目的验证矩阵结论为通过。
 - 真实 Web 构建、服务启动、数据库连接、资料上传、PDF 处理、题目输入、资料依据展示通过。
 - 固定样例 PDF 与固定样例题目的验收记录完整。
 - 文档与实际行为一致。
+- `make verify-spec` 和 `make verify-secrets` 通过。
 - 工作区相关改动已完成 subagent 严格审计，且审计结论为通过。
 - 审计通过后提交并推送到远端仓库。
 - 远端状态必须在推送后通过 `git ls-remote --heads origin main` 复核；复核证据是命令输出，不要求再生成一个只用于记录该输出的新提交。

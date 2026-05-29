@@ -11,7 +11,7 @@ export API_URL ?= http://127.0.0.1:8000
 export NEXT_PUBLIC_API_URL ?= http://127.0.0.1:8000
 export PYTHONPATH := backend
 
-.PHONY: env-info reset-demo dev migrate process-demo verify-db verify-e2e test backend-test frontend-test install
+.PHONY: env-info reset-demo dev migrate process-demo verify-db verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test install
 
 install:
 	uv sync --project backend
@@ -43,6 +43,18 @@ search-question:
 
 verify-db:
 	uv run --project backend python scripts/verify_db.py
+
+verify-spec:
+	uv run --project backend python scripts/verify_release_gate.py
+
+verify-secrets:
+	uv run --project backend python scripts/scan_secrets.py
+
+evidence-package:
+	uv run --project backend python scripts/collect_evidence.py
+
+evidence-package-with-tests:
+	uv run --project backend python scripts/collect_evidence.py --with-tests
 
 verify-e2e:
 	uv run --project backend python scripts/dev_check.py

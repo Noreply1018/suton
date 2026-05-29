@@ -20,6 +20,8 @@
   - 完成项目创建、资料上传、资料处理、题目输入、资料依据展示。
   - 至少 1 条结果可追溯到文件名、页码、原文片段和原始 PDF 页码入口。
   - 所有 v0.1.0 条目验证矩阵结论为通过。
+  - `make verify-spec` 和 `make verify-secrets` 通过。
+  - 需要归档证据时使用 `make evidence-package` 或 `make evidence-package-with-tests` 生成脱敏证据包。
   - subagent 审计通过后才能提交发布相关改动。
 - 验证矩阵：
 

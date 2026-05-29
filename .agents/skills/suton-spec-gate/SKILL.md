@@ -16,10 +16,11 @@ description: Suton 项目门禁技能。Use when Codex works in the Suton reposi
 在实现或实质修改 v0.1.0 行为前，必须执行：
 
 1. 读取 `AGENTS.md`、`docs/spec/v0.1.0/README.md` 和相关 `docs/spec/v0.1.0/items/*.md`。
-2. 检查 `git status --short --branch`。
-3. 用命令核验本地必需工具，不得凭印象假设。
-4. 涉及外部状态时，用可追溯证据核验，例如 `git ls-remote`、GitHub/registry/CI 查询，或用户提供的可信日志。
-5. 找出目标范围内的所有开放语义。只要 spec 允许多个有效实现，先停止并修订 spec 或询问用户，不得先写代码。
+2. 读取 `docs/spec/v0.1.0/acceptance-checklist.md`，建立本次总验收清单。
+3. 检查 `git status --short --branch`。
+4. 用命令核验本地必需工具，不得凭印象假设。
+5. 涉及外部状态时，用可追溯证据核验，例如 `git ls-remote`、GitHub/registry/CI 查询，或用户提供的可信日志。
+6. 找出目标范围内的所有开放语义。只要 spec 允许多个有效实现，先停止并修订 spec 或询问用户，不得先写代码。
 
 ## v0.1.0 固定栈
 
@@ -52,6 +53,9 @@ description: Suton 项目门禁技能。Use when Codex works in the Suton reposi
 - 修改文件后必须派发 subagent 严格审计；若 subagent 工具不可用，停止并报告阻塞。
 - 在 Git 仓库中，已追踪文件改动通过审计后必须提交，不得把完成改动留在未提交状态。
 - 未核验远端状态前，不得声称 push、tag、release 或远端完成。
+- 修改 v0.1.0 spec、验证记录、门禁脚本或发布流程后，至少执行 `make verify-spec` 和 `make verify-secrets`。
+- 需要归档完成性证据时，执行 `make evidence-package`；若需要把测试结果纳入同一证据包，执行 `make evidence-package-with-tests`。
+- 任何证据包、验证记录和最终回复不得包含真实 API key、token、secret 或 password。
 
 ## 阻塞报告格式
 
