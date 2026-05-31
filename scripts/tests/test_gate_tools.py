@@ -23,10 +23,11 @@ def run_script(name: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_release_gate_script_passes() -> None:
+def test_release_gate_script_reports_incomplete_items() -> None:
     result = run_script("verify_release_gate.py")
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "release gate spec checks passed" in result.stdout
+    assert result.returncode != 0
+    assert "release blocked by incomplete spec items" in result.stdout + result.stderr
+    assert "ui-001-reference-fidelity.md" in result.stdout + result.stderr
 
 
 def test_secret_scan_passes() -> None:

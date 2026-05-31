@@ -46,11 +46,11 @@ def table_rows(markdown: str) -> list[list[str]]:
     return rows
 
 
-def check_item(path: Path) -> list[str]:
+def check_item(path: Path, *, completed: bool) -> list[str]:
     errors: list[str] = []
     text = path.read_text(encoding="utf-8")
-    if "- 状态：已完成" not in text:
-        errors.append(f"{path}: 状态不是已完成")
+    if "- 状态：" not in text:
+        errors.append(f"{path}: 缺少状态字段")
     rows = table_rows(text)
     if not rows:
         errors.append(f"{path}: 缺少验证矩阵行")
@@ -60,7 +60,7 @@ def check_item(path: Path) -> list[str]:
             errors.append(f"{path}: 验证矩阵第 {index} 行列数不是 8")
             continue
         scenario, environment, precondition, command, expected, actual, evidence, conclusion = row
-        if conclusion != "通过":
+        if completed and conclusion != "通过":
             errors.append(f"{path}: 场景“{scenario}”结论不是通过：{conclusion}")
         for label, value in {
             "环境": environment,
@@ -84,8 +84,13 @@ def main() -> None:
     require(item_paths, f"spec item files not found: {ITEMS_DIR}")
 
     errors: list[str] = []
+    incomplete_items: list[str] = []
     for path in item_paths:
-        errors.extend(check_item(path))
+        text = path.read_text(encoding="utf-8")
+        completed = "- 状态：已完成" in text
+        if not completed:
+            incomplete_items.append(str(path.relative_to(ROOT)))
+        errors.extend(check_item(path, completed=completed))
 
     readme = (SPEC_DIR / "README.md").read_text(encoding="utf-8")
     require("远端状态必须在推送后通过 `git ls-remote --heads origin main` 复核" in readme, "README 缺少远端复核规则")
@@ -107,6 +112,8 @@ def main() -> None:
 
     if errors:
         fail("\n".join(errors))
+    if incomplete_items:
+        fail("v0.1.0 release blocked by incomplete spec items:\n" + "\n".join(incomplete_items))
     print("v0.1.0 release gate spec checks passed")
 
 
