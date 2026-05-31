@@ -214,6 +214,43 @@ make doctor
 
 `make doctor` 会检查本地命令、RQ 任务导入路径、DashScope 凭据、Docker 服务、PostgreSQL/pgvector、Redis 和 RQ worker 是否在线，并让 worker 执行一次轻量健康检查，确认它能导入真实资料处理入口。发布或完整验收仍以 v0.1.0 spec 中的 `make verify-e2e`、`make verify-db`、`make test` 等门禁命令为准。
 
+## Docker Compose 运行
+
+发布镜像后，可以直接用生产 compose 拉起 Suton、PostgreSQL/pgvector 和 Redis：
+
+```bash
+curl -O https://raw.githubusercontent.com/Noreply1018/suton/main/docker-compose.prod.yml
+curl -O https://raw.githubusercontent.com/Noreply1018/suton/main/.env.example
+cp .env.example .env
+```
+
+编辑 `.env`，至少填写：
+
+```env
+DASHSCOPE_API_KEY=你的 DashScope API Key
+```
+
+启动：
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env up -d
+```
+
+打开：
+
+```text
+http://127.0.0.1:3000
+```
+
+默认镜像为：
+
+```env
+SUTON_IMAGE=ghcr.io/noreply1018/suton
+SUTON_IMAGE_TAG=latest
+```
+
+Docker Hub 镜像发布为可选项；当维护者在 GitHub 仓库配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` 后，同一 release workflow 会同步推送 `docker.io/noreply1018/suton`。
+
 ## 文档解析与 OCR 策略
 
 v0.1.0 不实现 OCR。第一版只处理带文字层的 PDF：

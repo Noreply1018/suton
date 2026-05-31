@@ -11,7 +11,7 @@ export API_URL ?= http://127.0.0.1:8000
 export NEXT_PUBLIC_API_URL ?= http://127.0.0.1:8000
 export PYTHONPATH := backend
 
-.PHONY: env-info doctor reset-demo dev start migrate process-demo verify-db verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test install
+.PHONY: env-info doctor reset-demo dev start docker-build docker-prod-up docker-prod-down migrate process-demo verify-db verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test install
 
 install:
 	uv sync --project backend
@@ -43,6 +43,15 @@ start:
 	 uv run --project backend rq worker suton --url "$$REDIS_URL" & \
 	 uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 & \
 	 NEXT_PUBLIC_API_URL="$$NEXT_PUBLIC_API_URL" pnpm --dir frontend exec next dev --hostname 127.0.0.1 --port 3000)
+
+docker-build:
+	docker build -t suton:local .
+
+docker-prod-up:
+	SUTON_IMAGE=suton SUTON_IMAGE_TAG=local docker compose -f docker-compose.prod.yml up -d
+
+docker-prod-down:
+	SUTON_IMAGE=suton SUTON_IMAGE_TAG=local docker compose -f docker-compose.prod.yml down
 
 migrate:
 	docker compose up -d postgres redis

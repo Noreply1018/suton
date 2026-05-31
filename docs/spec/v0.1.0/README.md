@@ -91,7 +91,7 @@ v0.1.0 embedding 语义固定为：
 - 引用完整性分析。
 - 错题本、学习计划、社区题库。
 - 多用户、权限、团队协作。
-- 对象存储、生产部署、CI/CD 发布、GitHub Release。
+- 对象存储和生产级运维部署。
 - bbox 高亮、公式结构理解、表格结构理解。
 
 ## 验证总规则
@@ -126,6 +126,20 @@ make test
 - 没有明确来源的结果不得进入前端列表。
 - 验证前必须清理旧上传、旧索引和旧数据库记录，避免依赖历史状态。
 
+## 容器发布规则
+
+v0.1.0 的产品功能范围仍限定为本地单用户 Web App 原型；容器发布只作为开源分发和验收复现方式，不引入多用户、权限、对象存储、生产运维、CI/CD 业务功能或移动端能力。
+
+容器发布必须满足：
+
+- 提供 Suton app 镜像，镜像内包含 Next.js 前端、FastAPI 后端和 RQ worker。
+- 通过 `docker-compose.prod.yml` 拉起 Suton app、PostgreSQL/pgvector 和 Redis。
+- `DASHSCOPE_API_KEY` 只能通过环境变量注入，不得写入镜像、compose 默认值、仓库文件、Release notes 或证据包。
+- tag 发布时 GitHub Actions 必须推送 GHCR 镜像，并创建 GitHub Release。
+- Docker Hub 推送为可选项；只有仓库配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` 时才执行，不得阻塞 GHCR 发布。
+- Release notes 必须从 `CHANGELOG.md` 对应版本段提取。
+- 发布后必须通过可追溯证据核验远端 tag、GitHub Release 和镜像状态。
+
 ## 当前验证记录
 
 - 2026-05-29 本地验证记录：[validation-2026-05-29.md](validation-2026-05-29.md)。
@@ -152,6 +166,7 @@ v0.1.0 发布前必须满足：
 - 真实 Web 构建、服务启动、数据库连接、资料上传、PDF 处理、题目输入、资料依据展示通过。
 - 固定样例 PDF 与固定样例题目的验收记录完整。
 - 文档与实际行为一致。
+- Docker 镜像构建和 `docker-compose.prod.yml` 真实闭环验证通过。
 - `make verify-spec` 和 `make verify-secrets` 通过。
 - 工作区相关改动已完成 subagent 严格审计，且审计结论为通过。
 - 审计通过后提交并推送到远端仓库。

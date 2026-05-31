@@ -7,7 +7,7 @@
 - 已读取 `AGENTS.md`、`.agents/skills/suton-spec-gate/SKILL.md`、`docs/spec/v0.1.0/README.md` 和相关 `items/*.md`。
 - 所有本次涉及条目状态、目标行为、非目标、验收标准和验证矩阵一致。
 - spec 中没有会影响实现选择的开放语义；若存在，先修 spec 或询问用户。
-- v0.1.0 不引入 OCR、自动切题、AI 长篇讲解、知识图谱、覆盖分析、引用完整性、生产部署、CI/CD 发布或 GitHub Release。
+- v0.1.0 不引入 OCR、自动切题、AI 长篇讲解、知识图谱、覆盖分析、引用完整性、生产运维或移动端能力；Docker 镜像、GitHub Release 和 CHANGELOG 只作为开源分发与发布门禁。
 
 ## 2. 本地工具与环境
 
@@ -40,7 +40,16 @@
 - `make verify-secrets` 通过，确认 Git 已追踪文本文件中没有疑似真实 key、token、secret 或 password。
 - 需要形成证据包时执行 `make evidence-package`；需要把 `make test` 一并纳入证据包时执行 `make evidence-package-with-tests`。
 
-## 6. 审计、提交与远端
+## 6. 容器与发布
+
+- `Dockerfile` 可以构建 Suton app 镜像。
+- `docker-compose.prod.yml` 可以拉起 Suton app、PostgreSQL/pgvector 和 Redis。
+- 容器环境中真实上传固定 PDF、处理索引、输入固定题目和展示来源结果通过。
+- `CHANGELOG.md` 包含目标版本段，且 `scripts/extract-changelog-release.sh <tag>` 可以提取非空 release notes。
+- GitHub release workflow 在 tag 发布时推送 GHCR 镜像并创建 GitHub Release。
+- Docker Hub 发布只在配置 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN` 时启用。
+
+## 7. 审计、提交与远端
 
 - 修改已追踪文件后，必须派发 subagent 严格审计。
 - 审计不通过时先修复，再重新审计。

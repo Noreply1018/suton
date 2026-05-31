@@ -5,7 +5,7 @@
 - 背景：v0.1.0 的目标是验证最小闭环，必须用固定资料和固定题目证明链路可运行。
 - 当前问题：如果只凭页面静态展示或 mock 数据判断完成，无法证明 Suton 的资料溯源价值成立。
 - 目标行为：发布前完成真实 Web、后端、数据库、资料处理和题目检索验证，并保留可追溯证据。
-- 非目标：不包含生产部署、GitHub Release、CI/CD 强制通过、性能压测、移动端验证。
+- 非目标：不包含生产运维部署、CI/CD 业务功能、性能压测、移动端验证。Docker 镜像、GitHub Release 和 CHANGELOG 只作为开源分发与发布门禁。
 - 发布必要性：必须发布
 - 用户可见影响：用户不会直接看到门禁，但门禁保证 v0.1.0 不是静态原型。
 - 涉及模块：前端、后端、数据库、文件存储、处理任务、检索、文档。
@@ -21,6 +21,8 @@
   - 至少 1 条结果可追溯到文件名、页码、原文片段和原始 PDF 页码入口。
   - 所有 v0.1.0 条目验证矩阵结论为通过。
   - `make verify-spec` 和 `make verify-secrets` 通过。
+  - Docker 镜像构建和 `docker-compose.prod.yml` 真实闭环验证通过。
+  - `CHANGELOG.md` 对应版本段可提取为 GitHub Release notes。
   - 需要归档证据时使用 `make evidence-package` 或 `make evidence-package-with-tests` 生成脱敏证据包。
   - subagent 审计通过后才能提交发布相关改动。
 - 验证矩阵：

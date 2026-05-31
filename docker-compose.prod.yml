@@ -1,0 +1,78 @@
+services:
+  suton:
+    image: ${SUTON_IMAGE:-ghcr.io/noreply1018/suton}:${SUTON_IMAGE_TAG:-latest}
+    container_name: suton
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SUTON_WEB_PORT:-3000}:3000"
+      - "127.0.0.1:${SUTON_API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql://suton:${POSTGRES_PASSWORD:-suton}@postgres:5432/suton
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /app/uploads
+      DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:?DASHSCOPE_API_KEY is required}
+      DASH_SCOPE_BASE_URL: https://dashscope.aliyuncs.com/compatible-mode/v1
+      EMBEDDING_PROVIDER: dashscope
+      EMBEDDING_MODEL: text-embedding-v4
+      EMBEDDING_DIMENSION: "1024"
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    volumes:
+      - suton-uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: suton-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: suton
+      POSTGRES_USER: suton
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-suton}
+    volumes:
+      - suton-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U suton -d suton"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: suton-redis-prod
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  suton-postgres-data:
+  suton-uploads:
