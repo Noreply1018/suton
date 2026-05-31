@@ -6,11 +6,11 @@ const config: Config = {
     extend: {
       colors: {
         ink: "#17201b",
-        paper: "#f7f4ed",
-        line: "#d8d0c2",
-        accent: "#2f6f5e",
+        paper: "#f2f6ec",
+        line: "#d6e1d2",
+        accent: "#315f43",
         signal: "#b94f31",
-        "teal-soft": "#c9ddda"
+        "teal-soft": "#cbd8c9"
       }
     }
   },

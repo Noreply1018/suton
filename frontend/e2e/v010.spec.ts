@@ -12,7 +12,7 @@ async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByLabel("新建项目").fill(name);
   await page.getByRole("button", { name: "创建项目" }).click();
-  await expect(page.getByText(name)).toBeVisible();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
   return name;
 }
 
@@ -39,6 +39,22 @@ test("question-input：无资料时提交题目被拦截", async ({ page }) => {
   await expect(page.getByText("需先上传并处理资料")).toBeVisible();
 });
 
+test("project-switch：切换项目后资料边界刷新", async ({ page }) => {
+  await page.goto("/");
+  const first = await createProject(page, "项目甲");
+  await uploadMaterial(page);
+  const second = await createProject(page, "项目乙");
+
+  await page.getByRole("button", { name: new RegExp(first) }).click();
+  await expect(page.getByRole("heading", { name: first })).toBeVisible();
+  await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toBeVisible();
+
+  await page.getByRole("button", { name: new RegExp(second) }).click();
+  await expect(page.getByRole("heading", { name: second })).toBeVisible();
+  await expect(page.getByTestId("material-library").getByText("项目内还没有资料。")).toBeVisible();
+  await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toHaveCount(0);
+});
+
 test("document-upload：拒绝非 PDF 文件", async ({ page }) => {
   await page.goto("/");
   await createProject(page, "非 PDF 验证项目");
@@ -55,7 +71,7 @@ test("minimal-loop/source-results：真实最小闭环返回来源结果", async
   await expect(page.getByTestId("evidence-preview")).toBeVisible();
   await expect(page.getByTestId("material-library")).toBeVisible();
   await expect(page.getByText("溯源请求").first()).toBeVisible();
-  await expect(page.getByText("证据预览")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "资料依据" })).toBeVisible();
   await createProject(page, "高等数学（上）期末复习");
 
   await uploadMaterial(page);
@@ -64,7 +80,7 @@ test("minimal-loop/source-results：真实最小闭环返回来源结果", async
   await page.getByTestId("question-text").fill(question);
   await page.getByRole("button", { name: "查找资料依据" }).click();
 
-  await expect(page.getByRole("heading", { name: "证据预览" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "资料依据" })).toBeVisible();
   await expect(page.getByText("pgvector 相似度").first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByTestId("source-card").first()).toBeVisible();
   const pdfLink = page.getByRole("link", { name: "PDF" }).first();
@@ -113,7 +129,7 @@ test("missing-source-page：缺少来源字段的候选不在页面展示", asyn
   }).trim();
 
   await page.goto(`/?questionId=${questionId}`);
-  await expect(page.getByRole("heading", { name: "证据预览" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "资料依据" })).toBeVisible();
   await expect(page.getByText("没有匹配资料。系统不会生成无来源答案。")).toBeVisible();
   await expect(page.getByText("seed missing source")).toHaveCount(0);
 });

@@ -26,4 +26,4 @@
 | 无来源结果过滤 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector | 通过 `make verify-db CHECK=seed-match-missing-source` 构造缺少页码或片段的候选结果 | 执行 `make dev`；执行 `make verify-e2e SCENARIO=missing-source-filter` | 缺少来源字段的结果不展示 | 已验证：缺少来源字段的候选不从 API 返回，页面无该候选内容 | `docs/spec/v0.1.0/validation-2026-05-29.md`；`missing-source-filter`、`missing-source-page` 场景通过 | 通过 |
 | 空结果状态 | v0.1.0 验证环境基线：记录 `make env-info` 输出；真实浏览器；真实后端；真实 PostgreSQL/pgvector；embedding provider、模型、维度和调用方式已固定并可用 | 已完成资料索引，准备明显无关题目 `tests/fixtures/unmatched-question.txt` | 执行 `make dev`；输入无关题目并检索；执行 `make verify-db CHECK=no-question-matches FILE=tests/fixtures/unmatched-question.txt`；执行 `make verify-e2e SCENARIO=empty-results` | 页面显示无匹配资料状态，不生成 AI 猜测 | 已验证：无关题目展示空结果，不生成无来源答案，数据库无匹配记录 | `docs/spec/v0.1.0/validation-2026-05-29.md`；`empty-results` 场景和 `make verify-db CHECK=no-question-matches` 通过 | 通过 |
 
-- 风险与回滚：UI 草案中的覆盖分析、引用完整性和知识图谱容易误入本条目。若实现时出现这些需求，应移出 v0.1.0。
+- 风险与回滚：覆盖分析、引用完整性和知识图谱容易误入本条目。若实现时出现这些需求，应移出 v0.1.0。
