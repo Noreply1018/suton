@@ -11,7 +11,7 @@ export API_URL ?= http://127.0.0.1:8000
 export NEXT_PUBLIC_API_URL ?= http://127.0.0.1:8000
 export PYTHONPATH := backend
 
-.PHONY: env-info reset-demo dev migrate process-demo verify-db verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test install
+.PHONY: env-info doctor reset-demo dev start migrate process-demo verify-db verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test install
 
 install:
 	uv sync --project backend
@@ -19,6 +19,9 @@ install:
 
 env-info:
 	uv run --project backend python scripts/env_info.py
+
+doctor:
+	uv run --project backend python scripts/doctor.py
 
 reset-demo:
 	uv run --project backend python scripts/reset_demo.py
@@ -30,6 +33,16 @@ dev:
 	 uv run --project backend rq worker suton --url "$$REDIS_URL" & \
 	 uv run --project backend uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000 & \
 	 pnpm --filter @suton/web dev)
+
+start:
+	uv run --project backend python scripts/dev_check.py
+	docker compose up -d postgres redis
+	uv run --project backend python scripts/migrate.py
+	uv run --project backend python scripts/doctor.py --preflight
+	(trap 'kill 0' INT TERM EXIT; \
+	 uv run --project backend rq worker suton --url "$$REDIS_URL" & \
+	 uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 & \
+	 NEXT_PUBLIC_API_URL="$$NEXT_PUBLIC_API_URL" pnpm --dir frontend exec next dev --hostname 127.0.0.1 --port 3000)
 
 migrate:
 	docker compose up -d postgres redis

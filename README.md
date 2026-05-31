@@ -186,6 +186,34 @@ Reranker：v0.1.0 不实现
 - v0.1.0 不引入 Qdrant、Elasticsearch 或其他独立检索服务。
 - PDF 解析和索引构建必须通过 Redis + RQ 后台任务处理，不阻塞用户页面。
 
+## 本地启动
+
+v0.1.0 的本地运行入口已经封装为一条命令。先在当前 shell 注入 DashScope 凭据，不要写入仓库文件：
+
+```bash
+export DASHSCOPE_API_KEY='你的 DashScope API Key'
+```
+
+然后执行：
+
+```bash
+make start
+```
+
+`make start` 会启动 PostgreSQL、Redis、数据库迁移、RQ worker、FastAPI 和 Next.js 前端。前端地址为：
+
+```text
+http://127.0.0.1:3000
+```
+
+如果页面能打开但资料一直停在“已上传 / 等待页数”，先执行：
+
+```bash
+make doctor
+```
+
+`make doctor` 会检查本地命令、RQ 任务导入路径、DashScope 凭据、Docker 服务、PostgreSQL/pgvector、Redis 和 RQ worker 是否在线，并让 worker 执行一次轻量健康检查，确认它能导入真实资料处理入口。发布或完整验收仍以 v0.1.0 spec 中的 `make verify-e2e`、`make verify-db`、`make test` 等门禁命令为准。
+
 ## 文档解析与 OCR 策略
 
 v0.1.0 不实现 OCR。第一版只处理带文字层的 PDF：
