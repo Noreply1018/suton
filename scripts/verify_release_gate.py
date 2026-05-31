@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC_DIR = ROOT / "docs/spec/v0.1.0"
 ITEMS_DIR = SPEC_DIR / "items"
 VALIDATION_DOC = SPEC_DIR / "validation-2026-05-29.md"
+UI_VALIDATION_DOC = SPEC_DIR / "validation-2026-05-31.md"
 
 
 def fail(message: str) -> None:
@@ -80,6 +81,7 @@ def check_item(path: Path, *, completed: bool) -> list[str]:
 def main() -> None:
     require(SPEC_DIR.exists(), f"spec directory not found: {SPEC_DIR}")
     require(VALIDATION_DOC.exists(), f"validation document not found: {VALIDATION_DOC}")
+    require(UI_VALIDATION_DOC.exists(), f"UI validation document not found: {UI_VALIDATION_DOC}")
     item_paths = sorted(ITEMS_DIR.glob("*.md"))
     require(item_paths, f"spec item files not found: {ITEMS_DIR}")
 
@@ -109,6 +111,11 @@ def main() -> None:
     for evidence in required_evidence:
         if evidence not in validation:
             errors.append(f"{VALIDATION_DOC}: 缺少证据项 {evidence}")
+
+    ui_validation = UI_VALIDATION_DOC.read_text(encoding="utf-8")
+    for evidence in ["ui-001-reference-fidelity", "make verify-e2e", "8 个 Playwright 场景全部通过"]:
+        if evidence not in ui_validation:
+            errors.append(f"{UI_VALIDATION_DOC}: 缺少 UI 证据项 {evidence}")
 
     if errors:
         fail("\n".join(errors))

@@ -154,8 +154,10 @@ make test
 ## 当前验证记录
 
 - 2026-05-29 本地验证记录：[validation-2026-05-29.md](validation-2026-05-29.md)。
+- 2026-05-31 UI 验证记录：[validation-2026-05-31.md](validation-2026-05-31.md)。
 - v0.1.0 总验收清单：[acceptance-checklist.md](acceptance-checklist.md)。
 - 该记录覆盖真实 Web、真实 FastAPI 后端、真实 PostgreSQL/pgvector、真实 Redis/RQ、本地文件系统、固定 fixture、DashScope `text-embedding-v4` 1024 维 embedding、`make test`、`make verify-e2e`、`SCENARIO=minimal-loop make verify-e2e` 和核心 `verify-db` 检查。
+- UI 补充记录覆盖参考图风格一致性、三栏信息架构、左侧 Suton 品牌导航、中间溯源请求工作区、右侧证据预览、资料概览和 UI 相关 Playwright 断言。
 - 发布门禁中的最终远端状态以执行发布操作后的 `git ls-remote --heads origin main` 命令输出为准；该外部命令证据不要求写回同一个已推送提交，避免提交内容与远端复核形成自引用。
 
 ## 门禁辅助工具
@@ -191,3 +193,4 @@ v0.1.0 发布前必须满足：
 | 2026-05-29 | 固定 embedding 为 DashScope `text-embedding-v4`、1024 维、OpenAI 兼容接口、`DASHSCOPE_API_KEY` 凭据；用户提供 API Key 后已实测返回 1024 维 float embedding。 | 用户确认与本地 API 实测 | DashScope `/embeddings` 返回 `status=200`、`model=text-embedding-v4`、`dimension=1024` |
 | 2026-05-29 | 记录 v0.1.0 真实闭环验证结果；功能条目和验证门禁状态更新为已完成；修正远端复核门禁为推送后的外部命令证据，移除自引用。 | 本地真实验证、自动化门禁、subagent 审计与远端复核 | `docs/spec/v0.1.0/validation-2026-05-29.md` |
 | 2026-05-31 | 新增 UI 参考图风格一致性验收，要求 v0.1.0 前端贴近用户提供的 Suton 溯源请求参考图；当前实现未通过该 UI 验收，因此 v0.1.0 发布门禁重新进入阻塞状态。 | 用户确认与本地 spec 更新 | `items/ui-001-reference-fidelity.md` |
+| 2026-05-31 | 改造 v0.1.0 前端为三栏资料溯源工作台，补充 UI Playwright 断言；`ui-001-reference-fidelity` 更新为已完成。 | 本地 UI 改造、截图核对和真实 e2e 验证 | `validation-2026-05-31.md` |

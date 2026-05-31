@@ -1,7 +1,23 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
-import { BookOpen, FileUp, Loader2, Plus, Search, SquareArrowOutUpRight } from "lucide-react";
+import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  BarChart3,
+  BookOpen,
+  Boxes,
+  CheckCircle2,
+  CircleDot,
+  FileSearch,
+  FileText,
+  FileUp,
+  Loader2,
+  Plus,
+  Search,
+  Settings,
+  ShieldCheck,
+  SquareArrowOutUpRight,
+  Target
+} from "lucide-react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -148,64 +164,95 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-paper text-ink">
-      <div className="grid min-h-screen grid-cols-[280px_1fr] max-lg:grid-cols-1">
-        <aside className="border-r border-line bg-[#ebe5d8] p-5 max-lg:border-b max-lg:border-r-0">
+    <main className="min-h-screen overflow-hidden bg-paper text-ink" data-testid="app-shell">
+      <div className="grid min-h-screen grid-cols-[240px_minmax(520px,1fr)_420px] max-2xl:grid-cols-[220px_minmax(460px,1fr)_380px] max-xl:grid-cols-1">
+        <aside
+          className="flex min-h-screen flex-col border-r border-teal-soft bg-[#f5f2ea]/95 px-4 py-6 max-xl:min-h-0 max-xl:border-b max-xl:border-r-0"
+          data-testid="sidebar-nav"
+        >
           <div className="mb-8 flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded bg-ink text-paper">
-              <BookOpen size={20} />
+            <div className="suton-mark">
+              <CircleDot size={28} />
             </div>
             <div>
-              <h1 className="text-xl font-semibold">Suton</h1>
-              <p className="text-sm text-ink/65">v0.1.0 资料溯源</p>
+              <h1 className="text-2xl font-semibold text-[#0d5f6b]">Suton</h1>
+              <p className="text-xs text-ink/55">溯源至证，问见真实</p>
             </div>
           </div>
 
-          <form onSubmit={createProject} className="mb-6 space-y-3">
-            <label className="text-sm font-medium" htmlFor="project-name">
+          <nav className="space-y-2">
+            <NavigationItem icon={<Boxes size={18} />} title="项目" subtitle="Projects" />
+            <NavigationItem icon={<BookOpen size={18} />} title="材料库" subtitle="Materials" />
+            <NavigationItem active icon={<Target size={18} />} title="溯源请求" subtitle="Trace Requests" />
+            <NavigationItem icon={<FileSearch size={18} />} title="证据审阅" subtitle="Evidence Review" />
+            <NavigationItem muted icon={<BarChart3 size={18} />} title="覆盖分析" subtitle="Coverage Analysis" />
+            <NavigationItem icon={<Settings size={18} />} title="设置" subtitle="Settings" />
+          </nav>
+
+          <form onSubmit={createProject} className="mt-8 space-y-3 border-y border-teal-soft py-5">
+            <label className="text-sm font-semibold" htmlFor="project-name">
               新建项目
             </label>
             <input
               id="project-name"
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
-              className="focus-ring w-full rounded border border-line bg-paper px-3 py-2 text-sm"
+              className="focus-ring w-full rounded-md border border-teal-soft bg-white/85 px-3 py-2 text-sm"
             />
             <button
               disabled={busy}
-              className="focus-ring flex w-full items-center justify-center gap-2 rounded bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-55"
+              className="focus-ring flex w-full items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
             >
               <Plus size={16} />
               创建项目
             </button>
           </form>
 
-          <nav className="space-y-2">
+          <div className="mt-5 min-h-0 flex-1 space-y-2 overflow-auto">
             {projects.map((project) => (
               <button
                 key={project.id}
                 onClick={() => setActiveProjectId(project.id)}
-                className={`focus-ring w-full rounded px-3 py-3 text-left text-sm transition ${
-                  activeProject?.id === project.id ? "bg-ink text-paper" : "hover:bg-paper"
+                className={`focus-ring w-full rounded-md px-3 py-3 text-left text-sm transition ${
+                  activeProject?.id === project.id ? "bg-white text-ink shadow-sm ring-1 ring-teal-soft" : "hover:bg-white/70"
                 }`}
               >
-                <span className="block font-medium">{project.name}</span>
-                <span className="mt-1 block text-xs opacity-70">
+                <span className="block truncate font-semibold">{project.name}</span>
+                <span className="mt-1 block text-xs text-ink/55">
                   {project.document_count} 份资料 · {project.question_count} 道题
                 </span>
               </button>
             ))}
-          </nav>
+          </div>
+
+          <div className="mt-6 rounded-md border border-[#9ac8ca] bg-[#e9f5f3] p-4 text-sm text-[#0b6570]">
+            <div className="mb-3 flex items-center gap-2 font-semibold">
+              <ShieldCheck size={18} />
+              仅基于已上传资料
+            </div>
+            <p className="text-xs leading-5 text-[#41757a]">系统只展示可追溯来源，不生成无来源答案。</p>
+          </div>
         </aside>
 
-        <section className="p-8 max-lg:p-5">
-          <div className="mb-6 flex items-start justify-between gap-6 max-md:flex-col">
+        <section className="relative flex min-h-screen flex-col px-8 py-7 max-xl:min-h-0 max-md:px-5" data-testid="trace-workspace">
+          <div className="paper-grid" aria-hidden="true" />
+
+          <div className="relative z-10 mb-5 flex items-start justify-between gap-6 max-md:flex-col">
             <div>
-              <p className="text-sm text-ink/60">当前项目</p>
-              <h2 className="mt-1 text-3xl font-semibold tracking-normal">{activeProject?.name ?? "尚未创建项目"}</h2>
+              <p className="mb-2 text-sm font-medium text-[#1f8b91]">当前请求 · 今天</p>
+              <h2 className="max-w-4xl text-balance text-3xl font-semibold leading-tight tracking-normal text-[#183a3d]">
+                {question.trim() || "解释并找出不确定性原理的数学表达及其物理含义的出处。"}
+              </h2>
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs font-medium text-[#1f6b70]">
+                <span className="rounded-full bg-white/80 px-3 py-1 ring-1 ring-teal-soft">请求类型：概念解释与出处定位</span>
+                <span className="inline-flex items-center gap-1">
+                  <CheckCircle2 size={14} />
+                  仅基于已上传资料
+                </span>
+              </div>
             </div>
             {activeProject && (
-              <div className="grid grid-cols-3 gap-6 border-l border-line pl-6 text-sm max-md:w-full max-md:border-l-0 max-md:pl-0">
+              <div className="grid min-w-[260px] grid-cols-3 gap-4 border-l border-teal-soft pl-5 text-sm max-md:w-full max-md:border-l-0 max-md:pl-0">
                 <Metric label="资料" value={activeProject.document_count} />
                 <Metric label="题目" value={activeProject.question_count} />
                 <Metric label="最近状态" value={statusLabel(activeProject.latest_status)} />
@@ -213,41 +260,52 @@ export default function Home() {
             )}
           </div>
 
-          {error && <div className="mb-5 rounded border border-signal bg-white px-4 py-3 text-sm text-signal">{error}</div>}
+          {error && <div className="relative z-10 mb-4 rounded-md border border-signal bg-white px-4 py-3 text-sm text-signal">{error}</div>}
 
-          <div className="grid grid-cols-[minmax(300px,420px)_1fr] gap-8 max-xl:grid-cols-1">
-            <section className="space-y-8">
-              <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">资料库</h3>
-                  <label className="focus-ring inline-flex cursor-pointer items-center gap-2 rounded bg-ink px-3 py-2 text-sm font-medium text-paper">
+          <div className="relative z-10 grid flex-1 grid-rows-[1fr_auto] gap-5">
+            <div className="trace-canvas">
+              <div className="trace-rings" aria-hidden="true" />
+              <div className="trace-center">
+                <div className="mx-auto mb-3 grid h-10 w-10 place-items-center rounded-full bg-[#dff4f2] text-[#126c75] ring-1 ring-[#8fc9ca]">
+                  <Target size={19} />
+                </div>
+                <p className="text-xs font-semibold text-[#28777d]">溯源请求</p>
+                <p className="mt-2 text-sm leading-6 text-ink/80">
+                  {question.trim() || "输入题目后，系统将从已上传资料中返回可核验的页码与片段。"}
+                </p>
+                <span className="mt-3 inline-flex rounded-full bg-[#eff7f4] px-3 py-1 text-xs font-medium text-[#2a7778]">
+                  概念：来源定位
+                </span>
+              </div>
+
+              {traceNodePreviews(documents, sourcedMatches).slice(0, 5).map((match, index) => (
+                <EvidenceNode key={`${match.filename}-${index}`} match={match} index={index} />
+              ))}
+            </div>
+
+            <div className="grid grid-cols-[minmax(260px,1fr)_minmax(300px,420px)] gap-5 max-2xl:grid-cols-1">
+              <section data-testid="material-library" className="min-w-0 border-t border-teal-soft pt-4">
+                <div className="mb-3 flex items-center justify-between gap-4">
+                  <h3 className="text-base font-semibold text-[#173f43]">已上传材料</h3>
+                  <label className="focus-ring inline-flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-[#8ebfc0] bg-white/70 px-3 py-2 text-sm font-semibold text-[#156d75]">
                     <FileUp size={16} />
                     上传 PDF
                     <input data-testid="document-file" type="file" accept="application/pdf" onChange={uploadFile} className="sr-only" />
                   </label>
                 </div>
-                <div className="divide-y divide-line border-y border-line">
+                <div className="flex gap-3 overflow-x-auto pb-1">
                   {documents.length === 0 ? (
-                    <p className="py-8 text-sm text-ink/60">项目内还没有资料。</p>
+                    <div className="grid min-h-24 min-w-72 place-items-center rounded-md border border-dashed border-teal-soft bg-white/55 px-5 text-sm text-ink/55">
+                      项目内还没有资料。
+                    </div>
                   ) : (
-                    documents.map((document) => (
-                      <div key={document.id} className="py-4">
-                        <div className="flex items-center justify-between gap-4">
-                          <p className="truncate text-sm font-medium">{document.filename}</p>
-                          <Status value={document.status} />
-                        </div>
-                        <p className="mt-1 text-xs text-ink/60">
-                          {document.page_count ? `${document.page_count} 页` : "等待页数"}{" "}
-                          {document.failure_reason ? `· ${document.failure_reason}` : ""}
-                        </p>
-                      </div>
-                    ))
+                    documents.map((document) => <DocumentRailItem key={document.id} document={document} />)
                   )}
                 </div>
-              </div>
+              </section>
 
-              <form onSubmit={submitQuestion} className="space-y-3">
-                <label className="text-lg font-semibold" htmlFor="question">
+              <form onSubmit={submitQuestion} className="border-t border-teal-soft pt-4">
+                <label className="text-base font-semibold text-[#173f43]" htmlFor="question">
                   手动输入题目
                 </label>
                 <textarea
@@ -255,65 +313,127 @@ export default function Home() {
                   data-testid="question-text"
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
-                  rows={8}
-                  className="focus-ring w-full resize-none rounded border border-line bg-white px-4 py-3 text-sm leading-6"
+                  rows={4}
+                  className="focus-ring mt-3 w-full resize-none rounded-md border border-teal-soft bg-white/90 px-4 py-3 text-sm leading-6"
                   placeholder="粘贴一道题目文本"
                 />
                 <button
                   disabled={busy || !activeProject}
-                  className="focus-ring inline-flex items-center gap-2 rounded bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-55"
+                  className="focus-ring mt-3 inline-flex items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-55"
                 >
                   {busy ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
                   查找资料依据
                 </button>
               </form>
-            </section>
-
-            <section>
-              <div className="mb-3 flex items-center justify-between border-b border-line pb-3">
-                <h3 className="text-lg font-semibold">资料依据</h3>
-                {result && <span className="text-sm text-ink/60">{sourcedMatches.length} 条结果</span>}
-              </div>
-              {!result ? (
-                <div className="grid min-h-[360px] place-items-center border-b border-line text-center text-sm text-ink/60">
-                  <p>输入题目后，这里展示带文件、页码、片段和 PDF 入口的来源结果。</p>
-                </div>
-              ) : sourcedMatches.length === 0 ? (
-                <div className="grid min-h-[360px] place-items-center border-b border-line text-center text-sm text-ink/60">
-                  <p>没有匹配资料。系统不会生成无来源答案。</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-line border-b border-line">
-                  {sourcedMatches.map((match) => (
-                    <article key={match.id} className="py-5">
-                      <div className="mb-2 flex items-start justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-semibold">
-                            {match.rank}. {match.filename} 第 {match.page_no} 页
-                          </p>
-                          <p className="mt-1 text-xs text-ink/60">
-                            pgvector 相似度 {match.score.toFixed(4)} · {match.hit_reason}
-                          </p>
-                        </div>
-                        <a
-                          href={`${apiUrl}${match.pdf_url}`}
-                          target="_blank"
-                          className="focus-ring inline-flex shrink-0 items-center gap-1 rounded border border-line px-2 py-1 text-xs font-medium hover:bg-white"
-                        >
-                          <SquareArrowOutUpRight size={14} />
-                          PDF
-                        </a>
-                      </div>
-                      <p className="text-sm leading-6 text-ink/80">{match.source_text}</p>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
+            </div>
           </div>
         </section>
+
+        <aside
+          className="flex min-h-screen flex-col border-l border-teal-soft bg-white/78 px-5 py-6 shadow-[-16px_0_40px_rgba(42,75,74,0.06)] max-xl:min-h-0 max-xl:border-l-0 max-xl:border-t"
+          data-testid="evidence-preview"
+        >
+          <div className="mb-6 flex items-start justify-between gap-4 border-b border-teal-soft pb-5">
+            <div>
+              <h3 className="text-xl font-semibold text-[#173f43]">证据预览</h3>
+              <p className="mt-1 text-sm text-ink/50">Evidence Preview</p>
+            </div>
+            <span className="rounded-md px-2 py-1 text-xs font-semibold text-[#126c75] ring-1 ring-teal-soft">来源面板</span>
+          </div>
+
+          <section className="mb-5">
+            <p className="mb-2 text-xs font-semibold text-[#1f8b91]">教材</p>
+            <div className="flex items-center justify-between gap-3">
+              <p className="min-w-0 break-all text-lg font-semibold leading-snug text-[#173f43]">
+                {sourcedMatches[0]?.filename ?? documents.find((document) => document.status === "completed")?.filename ?? "等待资料来源"}
+              </p>
+              <span className="shrink-0 rounded-full bg-[#edf6f4] px-3 py-1 text-sm font-semibold text-[#0d6972]">
+                P. {sourcedMatches[0]?.page_no ?? "--"}
+              </span>
+            </div>
+          </section>
+
+          <div className="mb-4 grid grid-cols-3 gap-2 border-b border-teal-soft pb-3 text-center text-sm font-semibold text-ink/55">
+            <span className="border-b-2 border-[#16727a] pb-2 text-[#126c75]">段落锚点</span>
+            <span className="pb-2">页码入口</span>
+            <span className="pb-2">原文片段</span>
+          </div>
+
+          <section className="min-h-[300px] flex-1">
+            {!result ? (
+              <EmptyEvidence>输入题目后，这里展示带文件、页码、片段和 PDF 入口的来源结果。</EmptyEvidence>
+            ) : sourcedMatches.length === 0 ? (
+              <EmptyEvidence>没有匹配资料。系统不会生成无来源答案。</EmptyEvidence>
+            ) : (
+              <div className="space-y-4">
+                {sourcedMatches.map((match) => (
+                  <article key={match.id} className="source-card" data-testid="source-card">
+                    <div className="mb-3 flex min-w-0 items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="break-all text-sm font-semibold text-[#173f43]">
+                          {match.rank}. {match.filename} 第 {match.page_no} 页
+                        </p>
+                        <p className="mt-1 text-xs text-ink/55">
+                          pgvector 相似度 {match.score.toFixed(4)} · {match.hit_reason}
+                        </p>
+                      </div>
+                      <a
+                        href={`${apiUrl}${match.pdf_url}`}
+                        target="_blank"
+                        className="focus-ring inline-flex shrink-0 items-center gap-1 rounded-md border border-teal-soft px-2 py-1 text-xs font-semibold text-[#126c75] hover:bg-[#eff7f4]"
+                      >
+                        <SquareArrowOutUpRight size={14} />
+                        PDF
+                      </a>
+                    </div>
+                    <p className="break-all text-sm leading-6 text-ink/78">{match.source_text}</p>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <div className="mt-5 grid grid-cols-[1fr_auto] items-center gap-5 border-t border-teal-soft pt-5">
+            <div className="text-sm">
+              <p className="font-semibold text-[#173f43]">当前请求最高匹配</p>
+              <p className="mt-2 text-xs text-ink/55">pgvector 相似度 · 高相关来源片段</p>
+            </div>
+            <div className="grid h-24 w-24 place-items-center rounded-full border-[10px] border-[#2baba3] bg-white text-center">
+              <span className="text-xl font-semibold text-[#0d6972]">{sourcedMatches[0] ? `${Math.round(sourcedMatches[0].score * 100)}%` : "--"}</span>
+              <span className="sr-only">pgvector 相似度</span>
+            </div>
+          </div>
+        </aside>
       </div>
     </main>
+  );
+}
+
+function NavigationItem({
+  icon,
+  title,
+  subtitle,
+  active,
+  muted
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  active?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-md px-3 py-3 text-sm ${
+        active ? "bg-[#e3f1ef] text-[#0f6972] shadow-sm ring-1 ring-[#c5dfdd]" : muted ? "text-ink/42" : "text-ink/72"
+      }`}
+    >
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-teal-soft bg-white/65">{icon}</span>
+      <span>
+        <span className="block font-semibold">{title}</span>
+        <span className="block text-xs opacity-70">{subtitle}</span>
+      </span>
+    </div>
   );
 }
 
@@ -328,10 +448,91 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 
 function Status({ value }: { value: string }) {
   return (
-    <span data-testid="document-status" className="rounded border border-line bg-white px-2 py-1 text-xs font-medium text-ink/75">
+    <span data-testid="document-status" className="rounded-full border border-teal-soft bg-white px-2 py-1 text-xs font-semibold text-[#126c75]">
       {statusLabel(value)}
     </span>
   );
+}
+
+function DocumentRailItem({ document }: { document: DocumentRow }) {
+  return (
+    <div className="min-w-60 rounded-md border border-teal-soft bg-white/78 p-3 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="grid h-14 w-11 shrink-0 place-items-center rounded bg-[#dbeeea] text-[#126c75]">
+          <FileText size={20} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{document.filename}</p>
+          <p className="mt-1 text-xs text-ink/55">
+            PDF · {document.page_count ? `${document.page_count} 页` : "等待页数"}
+          </p>
+          {document.failure_reason && <p className="mt-1 line-clamp-2 text-xs text-signal">{document.failure_reason}</p>}
+        </div>
+      </div>
+      <div className="mt-3">
+        <Status value={document.status} />
+      </div>
+    </div>
+  );
+}
+
+type NodePreview = {
+  filename: string;
+  page_no?: number;
+  score?: number;
+  state: string;
+};
+
+function EvidenceNode({ match, index }: { match: NodePreview; index: number }) {
+  const positions = [
+    "left-[14%] top-[16%]",
+    "right-[8%] top-[20%]",
+    "right-[6%] bottom-[16%]",
+    "left-[12%] bottom-[18%]",
+    "left-[44%] bottom-[3%]"
+  ];
+  const colors = ["#126c75", "#5d7d63", "#168889", "#907a54", "#47869b"];
+  return (
+    <div className={`evidence-node ${positions[index] ?? positions[0]}`}>
+      <div className="node-orbit" style={{ borderColor: colors[index] }} />
+      <div className="node-body">
+        <span className="rounded-full bg-[#0f6972] px-2 py-1 text-xs font-semibold text-white">P. {match.page_no || "--"}</span>
+        <p className="mt-2 line-clamp-2 text-xs font-semibold text-[#173f43]">{match.filename}</p>
+        <p className="mt-1 text-xs text-[#2b777a]">{match.score ? `相似度 ${Math.round(match.score * 100)}%` : match.state}</p>
+      </div>
+    </div>
+  );
+}
+
+function EmptyEvidence({ children }: { children: ReactNode }) {
+  return (
+    <div className="grid min-h-[360px] place-items-center rounded-md border border-dashed border-teal-soft bg-[#fbfaf6] px-8 text-center text-sm leading-6 text-ink/58">
+      <p>{children}</p>
+    </div>
+  );
+}
+
+function traceNodePreviews(documents: DocumentRow[], matches: Match[]): NodePreview[] {
+  if (matches.length > 0) {
+    return matches.map((match) => ({
+      filename: match.filename,
+      page_no: match.page_no,
+      score: match.score,
+      state: match.hit_reason
+    }));
+  }
+  const uploaded = documents.slice(0, 5).map((document) => ({
+    filename: document.filename,
+    state: statusLabel(document.status)
+  }));
+  if (uploaded.length > 0) {
+    return uploaded;
+  }
+  return [
+    { filename: "等待上传资料", state: "未检索" },
+    { filename: "等待题目输入", state: "未检索" },
+    { filename: "等待来源结果", state: "未检索" }
+  ];
 }
 
 function statusLabel(value: string) {

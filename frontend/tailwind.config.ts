@@ -9,7 +9,8 @@ const config: Config = {
         paper: "#f7f4ed",
         line: "#d8d0c2",
         accent: "#2f6f5e",
-        signal: "#b94f31"
+        signal: "#b94f31",
+        "teal-soft": "#c9ddda"
       }
     }
   },

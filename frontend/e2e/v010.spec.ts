@@ -12,13 +12,13 @@ async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByLabel("新建项目").fill(name);
   await page.getByRole("button", { name: "创建项目" }).click();
-  await expect(page.getByRole("heading", { name })).toBeVisible();
+  await expect(page.getByText(name)).toBeVisible();
   return name;
 }
 
 async function uploadMaterial(page: Page) {
   await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
-  await expect(page.getByText("text-layer-material.pdf")).toBeVisible();
+  await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toBeVisible();
   await expect(page.getByTestId("document-status").filter({ hasText: "完成" })).toBeVisible({ timeout: 90_000 });
 }
 
@@ -50,6 +50,12 @@ test("document-upload：拒绝非 PDF 文件", async ({ page }) => {
 test("minimal-loop/source-results：真实最小闭环返回来源结果", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Suton" })).toBeVisible();
+  await expect(page.getByTestId("sidebar-nav")).toBeVisible();
+  await expect(page.getByTestId("trace-workspace")).toBeVisible();
+  await expect(page.getByTestId("evidence-preview")).toBeVisible();
+  await expect(page.getByTestId("material-library")).toBeVisible();
+  await expect(page.getByText("溯源请求").first()).toBeVisible();
+  await expect(page.getByText("证据预览")).toBeVisible();
   await createProject(page, "高等数学（上）期末复习");
 
   await uploadMaterial(page);
@@ -58,8 +64,9 @@ test("minimal-loop/source-results：真实最小闭环返回来源结果", async
   await page.getByTestId("question-text").fill(question);
   await page.getByRole("button", { name: "查找资料依据" }).click();
 
-  await expect(page.getByRole("heading", { name: "资料依据" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "证据预览" })).toBeVisible();
   await expect(page.getByText("pgvector 相似度").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("source-card").first()).toBeVisible();
   const pdfLink = page.getByRole("link", { name: "PDF" }).first();
   await expect(pdfLink).toHaveAttribute("href", /\/documents\/\d+\/file#page=\d+/);
 });
@@ -69,7 +76,7 @@ test("document-failure：损坏 PDF 展示失败状态", async ({ page }) => {
   await createProject(page, "损坏 PDF 验证项目");
 
   await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/broken.pdf"));
-  await expect(page.getByText("broken.pdf")).toBeVisible();
+  await expect(page.getByTestId("material-library").getByText("broken.pdf")).toBeVisible();
   await expect(page.getByTestId("document-status").filter({ hasText: "失败" })).toBeVisible({ timeout: 30_000 });
 });
 
@@ -106,7 +113,7 @@ test("missing-source-page：缺少来源字段的候选不在页面展示", asyn
   }).trim();
 
   await page.goto(`/?questionId=${questionId}`);
-  await expect(page.getByRole("heading", { name: "资料依据" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "证据预览" })).toBeVisible();
   await expect(page.getByText("没有匹配资料。系统不会生成无来源答案。")).toBeVisible();
   await expect(page.getByText("seed missing source")).toHaveCount(0);
 });
