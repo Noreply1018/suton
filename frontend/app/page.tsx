@@ -13,6 +13,7 @@ import {
   FileUp,
   FolderOpen,
   Library,
+  LoaderCircle,
   Loader2,
   Maximize2,
   Minimize2,
@@ -79,8 +80,11 @@ type Match = {
 
 type QuestionResult = {
   id: number;
+  project_id: number;
   text: string;
   status: string;
+  failure_code: string | null;
+  failure_reason: string | null;
   matches: Match[];
 };
 
@@ -182,6 +186,7 @@ export default function Home() {
   const [pendingQuestionFocus, setPendingQuestionFocus] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [error, setError] = useState("");
+  const [questionBusy, setQuestionBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const activeProjectIdRef = useRef<number | null>(null);
   const documentFileInputRef = useRef<HTMLInputElement>(null);
@@ -202,9 +207,9 @@ export default function Home() {
     () => documents.filter((document) => selectedDocumentIds.includes(document.id)).map((document) => document.id),
     [documents, selectedDocumentIds]
   );
-  const questionSubmitDisabled = busy || !activeProject || (scopeMode === "selected" && selectedScopeIds.length === 0);
+  const questionSubmitDisabled = busy || questionBusy || !activeProject || (scopeMode === "selected" && selectedScopeIds.length === 0);
   const currentQuestionText = result?.text.trim() || question.trim() || "输入题目开始检索";
-  const currentQuestionStatus = busy ? "正在检索来源" : result ? questionStatusLabel(result.status) : "未检索";
+  const currentQuestionStatus = questionBusy ? "正在检索来源" : result ? questionStatusLabel(result.status) : "未检索";
 
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
@@ -501,6 +506,7 @@ export default function Home() {
     setSourceDetailError("");
     setSourceReaderOpen(false);
     setCurrentSourcePage(null);
+    setQuestionBusy(true);
     setBusy(true);
     const projectId = activeProject.id;
     try {
@@ -515,6 +521,40 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "检索失败");
     } finally {
+      setQuestionBusy(false);
+      setBusy(false);
+    }
+  }
+
+  async function researchCurrentQuestion() {
+    if (!result) return;
+    const documentIds = scopeMode === "all" ? null : selectedScopeIds;
+    if (scopeMode === "selected" && selectedScopeIds.length === 0) return;
+    setError("");
+    setSourceDetail(null);
+    setSourceDetailError("");
+    setSourceReaderOpen(false);
+    setCurrentSourcePage(null);
+    setQuestion(result.text);
+    setQuestionBusy(true);
+    setBusy(true);
+    const projectId = activeProjectIdRef.current;
+    try {
+      const nextResult = await request<QuestionResult>(`/questions/${result.id}/research`, {
+        method: "POST",
+        body: JSON.stringify({ document_ids: documentIds })
+      });
+      if (activeProjectIdRef.current === nextResult.project_id) {
+        setResult(nextResult);
+        setQuestion(nextResult.text);
+        await refresh(nextResult.project_id);
+      } else if (projectId) {
+        await refresh(projectId);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重新检索失败");
+    } finally {
+      setQuestionBusy(false);
       setBusy(false);
     }
   }
@@ -822,6 +862,17 @@ export default function Home() {
                   >
                     检索范围
                   </button>
+                  {result && (
+                    <button
+                      type="button"
+                      disabled={questionBusy || busy || (scopeMode === "selected" && selectedScopeIds.length === 0)}
+                      onClick={researchCurrentQuestion}
+                      className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9] disabled:opacity-55"
+                    >
+                      <RefreshCw size={16} strokeWidth={1.75} className={questionBusy ? "animate-spin" : ""} />
+                      重新检索
+                    </button>
+                  )}
                   <button
                     type="button"
                     aria-label="进入专注模式"
@@ -863,7 +914,7 @@ export default function Home() {
                     disabled={questionSubmitDisabled}
                     className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#315f43] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#264b35] disabled:opacity-55"
                   >
-                    {busy ? <Loader2 size={16} strokeWidth={1.75} className="animate-spin" /> : <Search size={16} strokeWidth={1.75} />}
+                    {questionBusy ? <Loader2 size={16} strokeWidth={1.75} className="animate-spin" /> : <Search size={16} strokeWidth={1.75} />}
                     查找资料依据
                   </button>
                 </div>
@@ -896,7 +947,9 @@ export default function Home() {
             <p className="mt-1 text-sm text-[#4f5d50]">Source Results</p>
           </div>
 
-          {!result ? (
+          {questionBusy ? (
+            <LoadingResults />
+          ) : !result ? (
             <EmptyResults>输入题目后，这里展示带文件、页码、片段和 PDF 入口的来源结果。</EmptyResults>
           ) : sourcedMatches.length === 0 && result.status === "no_reliable_source" ? (
             <NoReliableSourceActions
@@ -905,6 +958,8 @@ export default function Home() {
               onHighlightMaterial={highlightUnavailableMaterial}
               onRestoreQuestion={restoreNoSourceQuestion}
             />
+          ) : sourcedMatches.length === 0 && result.status === "failed" ? (
+            <EmptyResults>{result.failure_reason ?? "题目检索失败"}</EmptyResults>
           ) : sourcedMatches.length === 0 ? (
             <EmptyResults>没有匹配资料。系统不会生成无来源答案。</EmptyResults>
           ) : (
@@ -1783,6 +1838,17 @@ function EmptyResults({ children }: { children: ReactNode }) {
   return (
     <div className="grid min-h-[360px] place-items-center border-y border-[#dce4d7] px-6 text-center text-sm leading-6 text-[#4f5d50]">
       <p>{children}</p>
+    </div>
+  );
+}
+
+function LoadingResults() {
+  return (
+    <div className="grid min-h-[360px] place-items-center border-y border-[#dce4d7] px-6 text-center text-sm leading-6 text-[#4f5d50]" data-testid="question-loading">
+      <p className="inline-flex items-center gap-2">
+        <LoaderCircle size={18} strokeWidth={1.75} className="animate-spin text-[#315f43]" />
+        正在检索来源
+      </p>
     </div>
   );
 }

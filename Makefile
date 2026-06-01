@@ -82,7 +82,7 @@ evidence-package-with-tests:
 	uv run --project backend python scripts/collect_evidence.py --with-tests
 
 verify-e2e:
-	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits|v020-project-rename-delete|v020-project-delete-selection|v020-document-delete|v020-document-health|v020-document-detail-fields|v020-document-scope-disabled|v020-processing-failure|v020-processing-refresh|v020-processing-polling-coalesced|v020-upload-indeterminate-progress|v020-source-reader-open|v020-source-reader-switch|v020-source-reader-page-nav|v020-source-reader-mobile|v020-source-reader-file-missing|v020-source-reader-stale-source|v020-confidence-levels|v020-question-history-long-text|v020-question-scope-errors|v020-no-source-actions|v020-long-lists|v020-focus-mode|v020-focus-mode-restore)$$ ]]; then \
+	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits|v020-project-rename-delete|v020-project-delete-selection|v020-document-delete|v020-document-health|v020-document-detail-fields|v020-document-scope-disabled|v020-processing-failure|v020-processing-refresh|v020-processing-polling-coalesced|v020-upload-indeterminate-progress|v020-source-reader-open|v020-source-reader-switch|v020-source-reader-page-nav|v020-source-reader-mobile|v020-source-reader-file-missing|v020-source-reader-stale-source|v020-confidence-levels|v020-question-history-long-text|v020-question-history-research|v020-question-scope-errors|v020-no-source-actions|v020-long-lists|v020-focus-mode|v020-focus-mode-restore)$$ ]]; then \
 		uv run --project backend python scripts/dev_check.py --skip-embedding; \
 	else \
 		uv run --project backend python scripts/dev_check.py; \

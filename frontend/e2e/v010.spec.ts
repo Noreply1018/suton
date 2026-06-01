@@ -70,6 +70,15 @@ type QuestionHistoryLongTextSeed = {
   question_ids: number[];
 };
 
+type QuestionHistoryResearchSeed = {
+  project_id: number;
+  project_name: string;
+  question_id: number;
+  question_text: string;
+  document_id: number;
+  old_match_id: number;
+};
+
 type NoSourceActionsSeed = {
   project_id: number;
   project_name: string;
@@ -200,6 +209,15 @@ function seedQuestionHistoryLongText() {
     encoding: "utf-8"
   }).trim();
   return JSON.parse(output) as QuestionHistoryLongTextSeed;
+}
+
+function seedQuestionHistoryResearch() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_question_history_research.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as QuestionHistoryResearchSeed;
 }
 
 function seedNoSourceActions() {
@@ -1283,6 +1301,51 @@ test("v020-question-history-long-text：长题干历史列表不撑开页面", a
     await page.getByTestId("question-history-item").first().click();
     await expect(page.getByTestId("question-history-item").first()).toHaveAttribute("aria-current", "true");
     await expect(page.getByTestId("evidence-preview")).toContainText("未找到可靠来源");
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("v020-question-history-research：历史题目可回看并重新检索替换当前结果", async ({ page }) => {
+  const seed = seedQuestionHistoryResearch();
+  try {
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await expect(page.getByTestId("question-history-item")).toHaveCount(1);
+    await page.getByTestId("question-history-item").first().click();
+    await expect(page.getByTestId("question-history-item").first()).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-card")).toHaveCount(1);
+    await expect(page.getByTestId("source-card").first()).toContainText("old history source");
+    await expect(page.getByTestId("source-card").first()).toContainText("强相关");
+
+    const researchResponse = page.waitForResponse(
+      (response) => response.url() === `${apiUrl}/questions/${seed.question_id}/research` && response.request().method() === "POST"
+    );
+    const researchButton = page.getByTestId("question-context-toolbar").getByRole("button", { name: "重新检索" });
+    await researchButton.click();
+    await expect(researchButton).toBeDisabled();
+    await expect(page.getByTestId("question-loading")).toContainText("正在检索来源");
+    const response = await researchResponse;
+    expect(response.status()).toBe(200);
+    const body = (await response.json()) as { id: number; status: string; failure_reason: string | null; matches: unknown[] };
+    expect(body.id).toBe(seed.question_id);
+    expect(body.status).toBe("failed");
+    expect(body.failure_reason).toBe("题目向量生成失败");
+    expect(body.matches).toEqual([]);
+
+    await expect(page.getByText("题目向量生成失败")).toBeVisible();
+    await expect(page.getByTestId("source-card")).toHaveCount(0);
+    await expect(page.getByText("old history source")).toHaveCount(0);
+    await expect(page.getByTestId("question-history-item").first()).toContainText("检索失败");
+    await expect(page.getByTestId("question-history-item").first()).toContainText("0 条来源");
+
+    const detailResponse = await page.request.get(`${apiUrl}/questions/${seed.question_id}`);
+    expect(detailResponse.status()).toBe(200);
+    const detail = (await detailResponse.json()) as { status: string; failure_reason: string | null; matches: unknown[] };
+    expect(detail.status).toBe("failed");
+    expect(detail.failure_reason).toBe("题目向量生成失败");
+    expect(detail.matches).toEqual([]);
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());
