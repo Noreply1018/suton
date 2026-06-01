@@ -21,22 +21,28 @@
   - `documents.failure_code` 固定枚举为 `invalid_pdf`、`unsupported_file_type`、`no_text_layer`、`extract_text_failed`、`chunking_failed`、`embedding_failed`、`indexing_failed`、`storage_missing`、`delete_file_failed`、`unknown_processing_error`；未失败时为 `NULL`。
   - `documents.failure_reason` 必须按 `failure_code` 固定映射：`invalid_pdf` 为 `PDF 文件损坏，无法读取`；`unsupported_file_type` 为 `文件类型不受支持`；`no_text_layer` 为 `PDF 无可提取文字层，v0.2.0 不进入 OCR`；`extract_text_failed` 为 `提取文字失败`；`chunking_failed` 为 `切块失败`；`embedding_failed` 为 `生成 embedding 失败`；`indexing_failed` 为 `建立索引失败`；`storage_missing` 为 `资料文件不存在`；`delete_file_failed` 为 `资料文件删除失败`；`unknown_processing_error` 为 `资料处理失败`。
   - `documents.text_quality` 固定枚举为 `good`、`fair`、`poor`、`unsearchable`，展示文案分别为 `良好`、`一般`、`不足`、`不可检索`。
+  - `document_pages` 必须包含 `id`、`document_id`、`page_no`、`raw_text`、`normalized_text`、`char_count`、`created_at`；`page_no` 从 1 开始；同一资料内 `(document_id, page_no)` 必须唯一。
+  - `document_pages.normalized_text` 必须等于对 `raw_text` 执行正则替换 `re.sub(r"[ \t]+", " ", raw_text).strip()` 后的结果；`char_count` 必须等于 `len(normalized_text)`。
   - `chunks` 必须包含 `id`、`document_id`、`page_id`、`page_no`、`text`、`page_start_char`、`page_end_char`、`embedding`、`embedding_provider`、`embedding_model`、`embedding_dimension`、`embedding_call`、`created_at`；`page_start_char` 和 `page_end_char` 是 chunk 在规范化页文本中的半开区间 `[start, end)`。
   - `questions` 必须包含 `id`、`project_id`、`text`、`status`、`failure_code`、`failure_reason`、`last_search_at`、`created_at`、`updated_at`；`status` 固定枚举为 `searching`、`completed`、`no_reliable_source`、`failed`；`failure_code` 固定枚举为 `embedding_failed`、`source_context_failed`、`search_failed`。
   - `questions.failure_reason` 必须按 `failure_code` 固定映射：`embedding_failed` 为 `题目向量生成失败`；`source_context_failed` 为 `来源上下文生成失败`；`search_failed` 为 `题目检索失败`；未失败时 `failure_code` 和 `failure_reason` 均为 `NULL`。
   - `question_matches` 必须包含 `id`、`question_id`、`chunk_id`、`document_id`、`page_no`、`score`、`rank`、`confidence_level`、`hit_reason`、`source_text`、`context_before`、`context_after`、`created_at`。
   - `question_matches.confidence_level` 固定枚举为 `strong`、`reference`、`low`；展示文案分别为 `强相关`、`可参考`、`低置信`。
   - `question_matches.source_text` 固定保存完整命中 chunk 文本，写入前执行 trim，不截断、不摘要、不改写。
-  - 结果上下文固定由命中 chunk 所在页的规范化页文本和 chunk offset 生成。规范化算法必须与 v0.1.0 `split_page_text` 的清理步骤一致：对 `document_pages.raw_text` 执行正则替换 `re.sub(r"[ \t]+", " ", raw_text).strip()`，保留换行，不合并段落。
+  - 结果上下文固定由命中 chunk 所在页的 `document_pages.normalized_text` 和 chunk offset 生成；保留换行，不合并段落。
   - chunk 写入时必须同时写入 `page_start_char` 和 `page_end_char`。`context_before` 为规范化页文本中 `page_start_char` 前最多 300 个字符，`context_after` 为 `page_end_char` 后最多 300 个字符；不足 300 个字符时返回实际剩余文本，不跨页、不跨文件生成上下文。
   - 若 `page_start_char`、`page_end_char` 越界，或规范化页文本的 `[page_start_char, page_end_char)` 片段与 `chunks.text` 不一致，本次题目检索必须失败：`questions.status` 写入 `failed`，`questions.failure_code` 写入 `source_context_failed`，`questions.failure_reason` 写入 `来源上下文生成失败`，且不得写入该题任何 `question_matches`。
 - 接口契约：
-  - `GET /projects` 返回项目列表，字段包含 `id`、`name`、`document_count`、`question_count`、`latest_status`、`updated_at`。
+  - 项目对象字段固定为 `id`、`workspace_id`、`name`、`document_count`、`question_count`、`latest_status`、`created_at`、`updated_at`；`document_count` 为当前项目未硬删除资料总数，覆盖 `uploaded`、`processing`、`completed`、`failed`、`unsupported`、`deleting`；`question_count` 为当前项目未硬删除题目总数，覆盖 `searching`、`completed`、`no_reliable_source`、`failed`。
+  - `latest_status` 固定枚举为 `empty`、`processing`、`failed`、`ready`，计算优先级固定为：无资料时 `empty`，存在 `uploaded`、`processing` 或 `deleting` 资料时 `processing`，存在 `failed` 或 `unsupported` 资料且不存在处理中或删除中资料时 `failed`，其余为 `ready`。
+  - `projects.updated_at` 在项目创建、重命名、上传资料、删除资料、重新处理资料、新题检索和重新检索成功返回题目详情对象时更新为当前数据库时间；只读查询不得更新。
+  - 资料对象字段固定为 `id`、`project_id`、`filename`、`content_type`、`page_count`、`extractable_page_count`、`chunk_count`、`text_quality`、`text_quality_label`、`searchable`、`status`、`processing_stage`、`failed_stage`、`failure_code`、`failure_reason`、`created_at`、`processed_at`、`updated_at`；`text_quality_label` 必须由后端按 `text_quality` 映射生成：`good` 为 `良好`，`fair` 为 `一般`，`poor` 为 `不足`，`unsearchable` 为 `不可检索`；接口不得返回 `storage_path`。
+  - `GET /projects` 返回项目对象数组，按 `updated_at DESC, id DESC` 排序。
   - `POST /projects` 请求体为 `{ "name": string }`；名称 trim 后为空返回 HTTP 400，`detail` 固定为 `项目名称不能为空`；名称超过 80 个字符返回 HTTP 400，`detail` 固定为 `项目名称不能超过 80 个字符`；成功返回项目对象；重名返回 HTTP 409，`detail` 固定为 `项目名称已存在`。
   - `PATCH /projects/{project_id}` 请求体为 `{ "name": string }`；名称 trim 后与原名完全一致时返回当前项目对象且不更新时间戳；空名返回 HTTP 400，`detail` 固定为 `项目名称不能为空`；名称超过 80 个字符返回 HTTP 400，`detail` 固定为 `项目名称不能超过 80 个字符`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；重名返回 HTTP 409，`detail` 固定为 `项目名称已存在`。
   - `DELETE /projects/{project_id}` 执行硬删除；成功返回 `{ "deleted": true, "project_id": number }`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；任一上传文件进入删除暂存区失败时返回 HTTP 500，`detail` 固定为 `项目文件删除失败`，数据库事务必须回滚。
-  - `GET /projects/{project_id}/documents` 返回资料列表，字段包含资料健康度、处理阶段、失败详情和最近处理时间。
-  - `GET /documents/{document_id}` 返回资料详情，字段必须完整包含 `documents` 数据模型契约中除 `storage_path` 外的用户可见字段；`storage_path` 不得返回给前端。
+  - `GET /projects/{project_id}/documents` 返回资料对象数组，按 `created_at DESC, id DESC` 排序；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`。
+  - `GET /documents/{document_id}` 返回资料对象；资料不存在返回 HTTP 404，`detail` 固定为 `资料不存在`。
   - `POST /projects/{project_id}/documents` 仅接受 PDF；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；非 PDF 返回 HTTP 400，`detail` 固定为 `v0.2.0 只支持上传 PDF 文件`；空文件返回 HTTP 400，`detail` 固定为 `上传文件不能为空`；文件写入本地存储失败返回 HTTP 500，`detail` 固定为 `资料文件保存失败`；成功后返回资料对象，`status` 为 `uploaded`，`processing_stage` 为 `uploaded`。
   - `POST /documents/{document_id}/reprocess` 清除该资料旧页面文本、chunk、embedding 和关联来源结果后重新排队处理；资料不存在返回 HTTP 404，`detail` 固定为 `资料不存在`；资料文件不存在返回 HTTP 404，`detail` 固定为 `资料文件不存在`；资料状态为 `uploaded` 或 `processing` 时返回 HTTP 409，`detail` 固定为 `资料正在处理`；重新排队失败返回 HTTP 500，`detail` 固定为 `资料重新处理排队失败`；成功返回资料对象，`status` 为 `uploaded`，`processing_stage` 为 `uploaded`。
   - `DELETE /documents/{document_id}` 执行硬删除；成功返回 `{ "deleted": true, "document_id": number }`；资料不存在返回 HTTP 404，`detail` 固定为 `资料不存在`；上传文件进入删除暂存区失败时返回 HTTP 500，`detail` 固定为 `资料文件删除失败`，数据库事务必须回滚。
@@ -67,6 +73,7 @@
   - 资料处理阶段可持久化。
   - 资料处理失败时必须持久化 `failed_stage`、`failure_reason` 和 `failure_code`；失败详情接口必须返回这三个字段，`failure_reason` 用于用户可读展示，`failure_code` 用于自动化验证和后续修复入口判断。
   - 资料健康度接口返回页数、可提取文字页数、文字层质量、chunk 数和可检索状态。
+  - 项目列表和资料列表接口返回字段、排序和 `latest_status`、`text_quality_label` 文案符合本条目接口契约。
   - 来源结果接口返回 `confidence_level`，固定枚举为 `strong`、`reference`、`low`。
   - 来源详情接口返回完整来源字段：文件 ID、文件名、页码、chunk ID、原文片段、上下文、PDF 页入口、pgvector 相似度分数、排序位置和确定性命中原因。
   - 无来源时接口返回空结果；来源失效时接口返回明确错误；两种场景均不返回伪来源。
@@ -85,5 +92,6 @@
 | 重处理与重新检索一致性 | Python、uv、真实 FastAPI、真实 PostgreSQL/pgvector、真实 Redis/RQ、Linux | 已处理资料并保存题目来源结果 | 执行 `make verify-db CHECK=v020-reprocess-research-consistency` | 资料重处理删除旧索引和旧来源；题目重新检索替换当前结果；旧题目记录保留 | 未验证 | 待补充 | 阻塞 |
 | 删除暂存清理 | Python、uv、真实 FastAPI、真实 PostgreSQL、本地文件系统、Linux | 已执行项目删除和资料删除场景 | 执行 `make verify-db CHECK=v020-delete-trash-cleanup` | 已提交删除不残留可恢复来源；删除暂存目录为空或只包含可追踪失败日志记录 | 未验证 | 待补充 | 阻塞 |
 | 题目接口字段 | Python、uv、真实 FastAPI、真实 PostgreSQL/pgvector、Linux | 已准备题目检索、重新检索、无可靠来源和失败样例 | 执行 `make verify-api-contract CHECK=v020-question-api` | 题目详情、历史列表、重新检索响应、失败字段、置信文案和无可靠来源状态符合 spec | 未验证 | 待补充 | 阻塞 |
+| 项目与资料响应字段 | Python、uv、真实 FastAPI、真实 PostgreSQL、Linux | 已准备空项目、处理中资料、失败资料和已完成资料 | 执行 `make verify-api-contract CHECK=v020-project-document-api` | 项目对象、资料对象、排序、`latest_status`、`text_quality_label`、`updated_at` 更新语义和 `storage_path` 隐藏规则符合 spec | 未验证 | 待补充 | 阻塞 |
 
 - 风险与回滚：数据语义一旦含糊会导致前端状态混乱。实现前必须先固定接口和迁移策略。
