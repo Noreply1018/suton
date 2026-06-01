@@ -3,8 +3,11 @@
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   ArrowUpRight,
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   FileText,
   FileUp,
@@ -52,11 +55,18 @@ type DocumentRow = {
 
 type Match = {
   id: number;
+  question_id: number;
+  document_id: number;
   rank: number;
   score: number;
+  confidence_level: string;
+  confidence_label: string;
   hit_reason: string;
   source_text: string;
+  context_before: string;
+  context_after: string;
   page_no: number;
+  chunk_id: number;
   document_filename: string;
   pdf_url: string;
 };
@@ -66,6 +76,11 @@ type QuestionResult = {
   text: string;
   status: string;
   matches: Match[];
+};
+
+type SourceDetail = Match & {
+  filename: string;
+  page_count: number;
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -95,6 +110,9 @@ export default function Home() {
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QuestionResult | null>(null);
+  const [sourceDetail, setSourceDetail] = useState<SourceDetail | null>(null);
+  const [sourceDetailError, setSourceDetailError] = useState("");
+  const [currentSourcePage, setCurrentSourcePage] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const activeProjectIdRef = useRef<number | null>(null);
@@ -122,6 +140,12 @@ export default function Home() {
     const currentDocument = documents.find((document) => document.id === selectedDocument.id);
     setSelectedDocument(currentDocument ?? null);
   }, [documents, selectedDocument]);
+
+  useEffect(() => {
+    setSourceDetail(null);
+    setSourceDetailError("");
+    setCurrentSourcePage(null);
+  }, [result?.id]);
 
   useEffect(() => {
     setSelectedDocumentIds((current) =>
@@ -181,6 +205,9 @@ export default function Home() {
     setActiveProjectId(projectId);
     activeProjectIdRef.current = projectId;
     setResult(null);
+    setSourceDetail(null);
+    setSourceDetailError("");
+    setCurrentSourcePage(null);
     setSelectedDocument(null);
     setError("");
     const nextDocuments = await request<DocumentRow[]>(`/projects/${projectId}/documents`);
@@ -356,6 +383,9 @@ export default function Home() {
     if (scopeMode === "selected" && selectedScopeIds.length === 0) return;
     setError("");
     setResult(null);
+    setSourceDetail(null);
+    setSourceDetailError("");
+    setCurrentSourcePage(null);
     setBusy(true);
     const projectId = activeProject.id;
     try {
@@ -379,6 +409,25 @@ export default function Home() {
     setSelectedDocumentIds((current) =>
       current.includes(document.id) ? current.filter((documentId) => documentId !== document.id) : [...current, document.id]
     );
+  }
+
+  async function openSourceDetail(match: Match) {
+    if (!result) return;
+    setSourceDetailError("");
+    try {
+      const detail = await request<Match & { filename: string }>(`/questions/${result.id}/matches/${match.id}`);
+      const cachedDocument = documents.find((document) => document.id === detail.document_id);
+      const document = cachedDocument ?? (await request<DocumentRow>(`/documents/${detail.document_id}`));
+      if (document.page_count === null) {
+        throw new Error("资料页数缺失");
+      }
+      setSourceDetail({ ...detail, page_count: document.page_count });
+      setCurrentSourcePage(detail.page_no);
+    } catch (err) {
+      setSourceDetail(null);
+      setCurrentSourcePage(null);
+      setSourceDetailError(err instanceof Error ? err.message : "来源详情打开失败");
+    }
   }
 
   return (
@@ -621,16 +670,26 @@ export default function Home() {
           ) : (
             <div className="space-y-4">
               {sourcedMatches.map((match) => (
-                <article key={match.id} className="source-card" data-testid="source-card">
+                <article
+                  key={match.id}
+                  className={`source-card ${sourceDetail?.id === match.id ? "ring-2 ring-[#7fa37e]" : ""}`}
+                  data-testid="source-card"
+                >
                   <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        openSourceDetail(match).catch((err: Error) => setSourceDetailError(err.message));
+                      }}
+                      className="focus-ring min-w-0 rounded-md text-left"
+                    >
                       <p className="break-all text-sm font-semibold text-[#203a2b]">
                         {match.rank}. {match.document_filename} 第 {match.page_no} 页
                       </p>
                       <p className="mt-1 text-xs text-[#5e6d5d]">
                         pgvector 相似度 {match.score.toFixed(4)} · {match.hit_reason}
                       </p>
-                    </div>
+                    </button>
                     <a
                       href={`${apiUrl}${match.pdf_url}`}
                       target="_blank"
@@ -643,6 +702,14 @@ export default function Home() {
                   <p className="break-all text-sm leading-6 text-[#435244]">{match.source_text}</p>
                 </article>
               ))}
+              {(sourceDetail || sourceDetailError) && (
+                <SourceReader
+                  detail={sourceDetail}
+                  error={sourceDetailError}
+                  currentPage={currentSourcePage}
+                  onPageChange={setCurrentSourcePage}
+                />
+              )}
             </div>
           )}
         </aside>
@@ -1021,6 +1088,113 @@ function DocumentDetail({ document }: { document: DocumentRow }) {
         <DetailItem testId="created-at" label="创建时间" value={formatDateTime(document.created_at)} />
         <DetailItem testId="processed-at" label="最近处理时间" value={formatDateTime(document.processed_at)} />
       </dl>
+    </section>
+  );
+}
+
+function SourceReader({
+  detail,
+  error,
+  currentPage,
+  onPageChange
+}: {
+  detail: SourceDetail | null;
+  error: string;
+  currentPage: number | null;
+  onPageChange: (page: number) => void;
+}) {
+  if (error) {
+    const missingFile = error === "资料文件不存在";
+    return (
+      <section className="rounded-md border border-[#c98972] bg-[#fff8f4] p-4" data-testid="source-reader-error">
+        <div className="mb-2 flex items-center gap-2 font-semibold text-[#9d4d2f]">
+          <AlertTriangle size={17} />
+          {missingFile ? "资料文件不存在" : "来源已失效"}
+        </div>
+        <p className="text-sm leading-6 text-[#6e4a3b]">{missingFile ? "无法打开原 PDF 文件。" : "该来源已被删除或重新处理。"}</p>
+      </section>
+    );
+  }
+  if (!detail || currentPage === null) return null;
+
+  const pdfUrl = `${apiUrl}${detail.pdf_url.replace(/#page=\d+$/, `#page=${currentPage}`)}`;
+  const atHitPage = currentPage === detail.page_no;
+
+  return (
+    <section className="rounded-md border border-[#c8d8c7] bg-[#fbfcf8]" data-testid="source-reader">
+      <div className="border-b border-[#dce4d7] px-4 py-3">
+        <div className="mb-3 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-[#203a2b]" data-testid="source-reader-filename">
+              {detail.filename}
+            </p>
+            <p className="mt-1 text-xs text-[#5e6d5d]" data-testid="source-reader-meta">
+              第 {currentPage} / {detail.page_count} 页 · 排序 {detail.rank} · {detail.confidence_label}
+            </p>
+          </div>
+          {atHitPage && (
+            <span className="shrink-0 rounded-full border border-[#b9d0b9] bg-[#edf6e9] px-2 py-1 text-xs font-semibold text-[#315f43]">
+              命中页
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="上一页"
+            disabled={currentPage <= 1}
+            onClick={() => onPageChange(currentPage - 1)}
+            className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] disabled:opacity-45"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            type="button"
+            aria-label="下一页"
+            disabled={currentPage >= detail.page_count}
+            onClick={() => onPageChange(currentPage + 1)}
+            className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] disabled:opacity-45"
+          >
+            <ChevronRight size={16} />
+          </button>
+          <button
+            type="button"
+            disabled={atHitPage}
+            onClick={() => onPageChange(detail.page_no)}
+            className="focus-ring rounded-md border border-[#c6d6c5] bg-[#f8fbf4] px-3 py-2 text-xs font-semibold text-[#315f43] disabled:opacity-45"
+          >
+            回到命中页
+          </button>
+          <a
+            href={pdfUrl}
+            target="_blank"
+            className="focus-ring ml-auto inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#edf6e9] px-2 py-2 text-xs font-semibold text-[#315f43] hover:bg-[#dfeedd]"
+          >
+            <ArrowUpRight size={14} />
+            PDF
+          </a>
+        </div>
+      </div>
+      <div className="h-[360px] border-b border-[#dce4d7] bg-[#eef2e9]">
+        <iframe title="PDF 阅读" src={pdfUrl} className="h-full w-full" data-testid="source-reader-pdf" />
+      </div>
+      <div className="space-y-3 px-4 py-4 text-sm leading-6 text-[#435244]">
+        <p className="text-xs font-semibold text-[#637061]">命中原因</p>
+        <p data-testid="source-reader-hit-reason">{detail.hit_reason}</p>
+        <p className="text-xs font-semibold text-[#637061]">命中段落</p>
+        <p className="break-words font-semibold text-[#203a2b]" data-testid="source-reader-source-text">
+          {detail.source_text}
+        </p>
+        <p className="text-xs font-semibold text-[#637061]">上下文</p>
+        <p className="break-words" data-testid="source-reader-context">
+          {detail.context_before}
+          <mark className="bg-[#fff0b8] px-1 text-[#203a2b]">{detail.source_text}</mark>
+          {detail.context_after}
+        </p>
+        <p className="text-xs text-[#5e6d5d]" data-testid="source-reader-score">
+          pgvector 相似度 {detail.score.toFixed(4)} · chunk {detail.chunk_id}
+        </p>
+      </div>
     </section>
   );
 }
