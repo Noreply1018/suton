@@ -696,14 +696,17 @@ export default function Home() {
                         pgvector 相似度 {match.score.toFixed(4)} · {match.hit_reason}
                       </p>
                     </button>
-                    <a
-                      href={`${apiUrl}${match.pdf_url}`}
-                      target="_blank"
-                      className="focus-ring inline-flex shrink-0 items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
-                    >
-                      <ArrowUpRight size={14} />
-                      PDF
-                    </a>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <ConfidencePill label={match.confidence_label} />
+                      <a
+                        href={`${apiUrl}${match.pdf_url}`}
+                        target="_blank"
+                        className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
+                      >
+                        <ArrowUpRight size={14} />
+                        PDF
+                      </a>
+                    </div>
                   </div>
                   <p className="break-all text-sm leading-6 text-[#435244]">{match.source_text}</p>
                 </article>
@@ -1231,6 +1234,17 @@ function Status({ value }: { value: string }) {
   return (
     <span data-testid="document-status" className="rounded-full border border-[#c5d6c2] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43]">
       {statusLabel(value)}
+    </span>
+  );
+}
+
+function ConfidencePill({ label }: { label: string }) {
+  return (
+    <span
+      data-testid="source-confidence-pill"
+      className="rounded-full border border-[#c5d6c2] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43]"
+    >
+      {label}
     </span>
   );
 }

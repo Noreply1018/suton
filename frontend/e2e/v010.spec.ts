@@ -23,7 +23,7 @@ type ProjectSeed = {
 
 type QuestionDetail = {
   id: number;
-  matches: unknown[];
+  matches: { confidence_label: string }[];
 };
 
 type DocumentDetailsSeed = {
@@ -41,6 +41,14 @@ type SourceReaderSeed = {
   document_id: number;
   match_id: number;
   second_match_id: number;
+};
+
+type ConfidenceLevelsSeed = {
+  project_id: number;
+  project_name: string;
+  question_id: number;
+  document_id: number;
+  match_ids: number[];
 };
 
 async function createProject(page: Page, prefix: string) {
@@ -100,6 +108,15 @@ function seedStaleSource() {
     encoding: "utf-8"
   }).trim();
   return JSON.parse(output) as SourceReaderSeed;
+}
+
+function seedConfidenceLevels() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_confidence_levels.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as ConfidenceLevelsSeed;
 }
 
 async function expectDetailItem(page: Page, testId: string, label: string, value: string) {
@@ -478,6 +495,37 @@ test("v020-source-reader-stale-source：来源详情失效展示固定错误状�
 
   const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
   expect(deleteResponse.status()).toBe(200);
+});
+
+test("v020-confidence-levels：来源结果展示三档置信层级", async ({ page }) => {
+  const seed = seedConfidenceLevels();
+  try {
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await expect(page.getByTestId("source-card")).toHaveCount(3);
+
+    await expect(page.getByTestId("source-card").nth(0)).toContainText("confidence-levels.pdf 第 1 页");
+    await expect(page.getByTestId("source-card").nth(0)).toContainText("strong confidence source");
+    await expect(page.getByTestId("source-card").nth(0).getByTestId("source-confidence-pill")).toHaveText("强相关");
+    await expect(page.getByTestId("source-card").nth(0)).toContainText("pgvector 相似度 0.9100");
+
+    await expect(page.getByTestId("source-card").nth(1)).toContainText("reference confidence source");
+    await expect(page.getByTestId("source-card").nth(1).getByTestId("source-confidence-pill")).toHaveText("可参考");
+    await expect(page.getByTestId("source-card").nth(1)).toContainText("pgvector 相似度 0.6300");
+
+    await expect(page.getByTestId("source-card").nth(2)).toContainText("low confidence source");
+    await expect(page.getByTestId("source-card").nth(2).getByTestId("source-confidence-pill")).toHaveText("低置信");
+    await expect(page.getByTestId("source-card").nth(2)).toContainText("pgvector 相似度 0.4400");
+    await expect(page.getByText("系统不会生成无来源答案。")).toHaveCount(0);
+
+    const response = await page.request.get(`${apiUrl}/questions/${seed.question_id}`);
+    expect(response.status()).toBe(200);
+    const detail = (await response.json()) as QuestionDetail;
+    expect(detail.matches.map((match) => match.confidence_label)).toEqual(["强相关", "可参考", "低置信"]);
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
 });
 
 test("question-input：无资料时提交题目被拦截", async ({ page }) => {
