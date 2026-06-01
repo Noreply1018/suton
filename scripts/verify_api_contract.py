@@ -521,6 +521,128 @@ def check_document_detail_fields() -> None:
         delete_project_records([project_id])
 
 
+def check_document_reprocess_api() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"资料重处理接口-{suffix}")
+    upload_root = Path(settings.upload_dir)
+    upload_root.mkdir(parents=True, exist_ok=True)
+    storage_path = upload_root / f"v020-reprocess-api-{suffix}.pdf"
+    storage_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+    try:
+        uploaded_id = create_document_record(
+            project_id,
+            filename="reprocess-uploaded.pdf",
+            status="uploaded",
+            processing_stage="uploaded",
+            storage_path=str(upload_root / f"reprocess-uploaded-{suffix}.pdf"),
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        processing_id = create_document_record(
+            project_id,
+            filename="reprocess-processing.pdf",
+            status="processing",
+            processing_stage="embedding",
+            storage_path=str(upload_root / f"reprocess-processing-{suffix}.pdf"),
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        missing_file_id = create_document_record(
+            project_id,
+            filename="reprocess-missing.pdf",
+            status="completed",
+            processing_stage="completed",
+            storage_path=str(upload_root / f"missing-reprocess-{suffix}.pdf"),
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        completed_id = create_document_record(
+            project_id,
+            filename="reprocess-completed.pdf",
+            status="completed",
+            processing_stage="completed",
+            storage_path=str(storage_path),
+            page_count=1,
+            extractable_page_count=1,
+            chunk_count=1,
+            text_quality="good",
+            searchable=True,
+        )
+        with connect() as conn:
+            page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, 'old reprocess api', 'old reprocess api', 17)
+                RETURNING id
+                """,
+                (completed_id,),
+            ).fetchone()
+            chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, 'old', 0, 3, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-document-reprocess-api')
+                RETURNING id
+                """,
+                (completed_id, page["id"], vector_literal([1.0] + [0.0] * 1023)),
+            ).fetchone()
+            question = conn.execute(
+                "INSERT INTO questions (project_id, text, status) VALUES (%s, 'document reprocess api question', 'completed') RETURNING id",
+                (project_id,),
+            ).fetchone()
+            match = conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, 0.9, 1, 'strong', 'old document reprocess api fixture', 'old', '', '')
+                RETURNING id
+                """,
+                (question["id"], chunk["id"], completed_id),
+            ).fetchone()
+            conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project_id,))
+            conn.commit()
+
+        require_status(client.post("/documents/999999999/reprocess"), 404, "资料不存在")
+        require_status(client.post(f"/documents/{uploaded_id}/reprocess"), 409, "资料正在处理")
+        require_status(client.post(f"/documents/{processing_id}/reprocess"), 409, "资料正在处理")
+        require_status(client.post(f"/documents/{missing_file_id}/reprocess"), 404, "资料文件不存在")
+
+        response = client.post(f"/documents/{completed_id}/reprocess")
+        require_status(response, 200)
+        body = response.json()
+        assert_document_shape(body)
+        require(body["id"] == completed_id, "reprocess response document id mismatch")
+        require(body["status"] == "uploaded", "reprocess response status mismatch")
+        require(body["processing_stage"] == "uploaded", "reprocess response processing_stage mismatch")
+        require(body["failed_stage"] is None and body["failure_code"] is None and body["failure_reason"] is None, "reprocess response did not clear failure fields")
+        require(body["searchable"] is False, "reprocess response must not remain searchable before new processing")
+        require(body["page_count"] == 1 and body["extractable_page_count"] == 1 and body["chunk_count"] == 1, "reprocess response did not preserve health counters before new processing")
+        require(storage_path.exists(), "reprocess API moved or deleted original PDF")
+
+        with connect() as conn:
+            page_count = conn.execute("SELECT COUNT(*) AS value FROM document_pages WHERE document_id = %s", (completed_id,)).fetchone()["value"]
+            chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (completed_id,)).fetchone()["value"]
+            match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE id = %s", (match["id"],)).fetchone()["value"]
+            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE id = %s", (question["id"],)).fetchone()["value"]
+            project_updated_at = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project_id,)).fetchone()["updated_at"]
+        require(page_count == 0, "reprocess API left old pages")
+        require(chunk_count == 0, "reprocess API left old chunks")
+        require(match_count == 0, "reprocess API left old source match")
+        require(question_count == 1, "reprocess API removed question history")
+        require(str(project_updated_at) > "2001-01-01", "reprocess API did not update project updated_at")
+    finally:
+        delete_project_records([project_id])
+        storage_path.unlink(missing_ok=True)
+
+
 def check_document_scope_disabled() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -1127,6 +1249,7 @@ def main() -> None:
     checks = {
         "v020-project-document-api": check_project_document_api,
         "v020-document-detail-fields": check_document_detail_fields,
+        "v020-document-reprocess-api": check_document_reprocess_api,
         "v020-document-scope-disabled": check_document_scope_disabled,
         "v020-project-name-limits": check_project_name_limits,
         "v020-question-scope-errors": check_question_scope_errors,
