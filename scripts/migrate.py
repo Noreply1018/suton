@@ -6,6 +6,24 @@ import time
 from app.db import connect
 
 
+def migrated_project_name(project_id: int, raw_name: str | None, used: set[str]) -> str:
+    base = (raw_name or "").strip()
+    if not base:
+        base = f"迁移项目 {project_id}"
+    base = base[:80]
+    candidate = base
+    if candidate in used:
+        n = 2
+        while True:
+            suffix = f"（迁移 {n}）"
+            candidate = base[: 80 - len(suffix)] + suffix
+            if candidate not in used:
+                break
+            n += 1
+    used.add(candidate)
+    return candidate
+
+
 def normalize_project_names() -> None:
     with connect() as conn:
         rows = conn.execute("SELECT id, name FROM projects ORDER BY id").fetchall()
@@ -13,20 +31,7 @@ def normalize_project_names() -> None:
         updates: list[tuple[str, int]] = []
         for row in rows:
             project_id = int(row["id"])
-            base = (row["name"] or "").strip()
-            if not base:
-                base = f"迁移项目 {project_id}"
-            base = base[:80]
-            candidate = base
-            if candidate in used:
-                n = 2
-                while True:
-                    suffix = f"（迁移 {n}）"
-                    candidate = base[: 80 - len(suffix)] + suffix
-                    if candidate not in used:
-                        break
-                    n += 1
-            used.add(candidate)
+            candidate = migrated_project_name(project_id, row["name"], used)
             if candidate != row["name"]:
                 updates.append((candidate, project_id))
         for name, project_id in updates:

@@ -20,7 +20,7 @@
   - `make test` 必须包含后端测试、前端 lint/typecheck 和已落地的 v0.2.0 自动化检查；不得用只执行 v0.1.0 测试的结果宣称 v0.2.0 通过。
   - `make verify-spec` 在草案阶段只证明 spec 结构有效；实现期发布前还必须确认所有 v0.2.0 验证矩阵行都有真实证据、实际结果和通过结论。
 - 占位阻塞契约：
-  - 当前仓库尚未实现的 `make verify-visual`、除 `v020-project-document-api` 和 `v020-project-name-limits` 以外的 `make verify-api-contract CHECK=v020-*`、除 `v020-schema` 和 `v020-confidence-levels` 以外的 `make verify-db CHECK=v020-*`、`make verify-e2e SCENARIO=v020-*` 不得被空 target、只打印文本、只检查文件存在、跳过真实服务或 dry-run 替代。
+  - 当前仓库尚未实现的 `make verify-visual`、除 `v020-project-document-api` 和 `v020-project-name-limits` 以外的 `make verify-api-contract CHECK=v020-*`、除 `v020-schema`、`v020-confidence-levels` 和 `v020-project-name-migration` 以外的 `make verify-db CHECK=v020-*`、`make verify-e2e SCENARIO=v020-*` 不得被空 target、只打印文本、只检查文件存在、跳过真实服务或 dry-run 替代。
   - 若某个验证 target 尚未实现，对应验证矩阵行必须保持 `未验证 / 待补充 / 阻塞`；不得因为 `make verify-spec` 通过而改为通过。
   - 发布前必须生成 `tmp/v0.2.0-evidence-latest.md`；该文件必须列出每个必需命令、退出码、执行时间、Git commit、数据准备命令、证据路径和结论。
   - 证据文件不得包含 API key、token、password、Cookie、Authorization header 或真实用户隐私数据。

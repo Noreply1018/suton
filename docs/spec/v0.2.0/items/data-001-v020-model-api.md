@@ -83,7 +83,7 @@
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
-| 数据迁移 | Python、uv、真实 PostgreSQL、Linux、v0.1.0 样例数据 | 已准备 v0.1.0 数据库状态 | 执行 `make migrate`；执行 `make verify-db CHECK=v020-schema`；执行 `make verify-db CHECK=v020-project-name-migration` | 数据迁移成功，关键记录可读取 | 未验证 | 待补充 | 阻塞 |
+| 数据迁移 | Python、uv、真实 PostgreSQL、Linux、v0.1.0 样例数据 | 已准备 v0.1.0 数据库状态 | 执行 `make migrate`；执行 `make verify-db CHECK=v020-schema`；执行 `make verify-db CHECK=v020-project-name-migration` | 数据迁移成功，关键记录可读取 | schema 与项目名称迁移 DB 检查已验证，完整 v0.1.0 样例迁移未验证 | `scripts/migrate.py`、`scripts/verify_db.py`、本地命令输出 | 阻塞 |
 | 删除一致性 | Python、uv、真实 PostgreSQL/pgvector、真实文件系统、Linux | 已存在项目、资料、chunk、题目和结果 | 执行 `make verify-db CHECK=v020-delete-consistency` | 删除后不存在可见失效来源或重复索引 | 未验证 | 待补充 | 阻塞 |
 | 来源详情接口 | Python、uv、真实 FastAPI、真实 PostgreSQL、真实文件存储、Linux | 已处理 `tests/fixtures/text-layer-material.pdf` 并检索 `tests/fixtures/question.txt` | 执行 `make verify-db CHECK=v020-source-detail-fields` | 返回文件 ID、文件名、页码、chunk ID、片段、上下文、PDF 页入口、pgvector 相似度分数、排序位置和确定性命中原因 | 未验证 | 待补充 | 阻塞 |
 | 资料健康度与置信层级字段 | Python、uv、真实 FastAPI、真实 PostgreSQL/pgvector、Linux | 已处理 `tests/fixtures/text-layer-material.pdf`，并已生成来源结果 | 执行 `make verify-db CHECK=v020-document-health-fields`；执行 `make verify-db CHECK=v020-confidence-level-fields` | 资料接口返回健康度字段，来源结果接口返回合法 `confidence_level` | 未验证 | 待补充 | 阻塞 |

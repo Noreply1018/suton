@@ -49,6 +49,6 @@
 | 重命名与删除 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、本地文件系统、Linux、Playwright 浏览器 | 已存在包含资料和题目的项目 | 执行 `make verify-e2e SCENARIO=v020-project-rename-delete`；执行 `make verify-db CHECK=v020-project-hard-delete` | 名称更新成功；项目硬删除符合 spec；页面状态同步 | 未验证 | 待补充 | 阻塞 |
 | 项目名称边界 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 已执行 `make reset-demo` 和 `make migrate` | 执行 `make verify-e2e SCENARIO=v020-project-name-limits`；执行 `make verify-api-contract CHECK=v020-project-name-limits` | 空名称、超长名称和重复名称均返回固定错误；合法 80 字符名称可创建 | API 契约已验证，E2E/前端提示未验证 | `scripts/verify_api_contract.py`、本地命令输出 | 阻塞 |
 | 删除后选择规则 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、本地文件系统、Linux、Playwright 浏览器 | 已存在 3 个项目且当前项目不是排序第一项 | 执行 `make verify-e2e SCENARIO=v020-project-delete-selection` | 删除当前项目后按 `updated_at DESC, id DESC` 选中下一个项目；无项目时进入首次空工作区 | 未验证 | 待补充 | 阻塞 |
-| 重名项目迁移 | Python、uv、真实 PostgreSQL、Linux、v0.1.0 样例数据 | 已准备同名项目、空名项目和超过 80 字符项目 | 执行 `make migrate`；执行 `make verify-db CHECK=v020-project-name-migration` | 项目按 ID 升序使用固定 trim、空名替换、80 字符截断和后缀去重算法生成唯一名称 | 未验证 | 待补充 | 阻塞 |
+| 重名项目迁移 | Python、uv、真实 PostgreSQL、Linux、v0.1.0 样例数据 | 已准备同名项目、空名项目和超过 80 字符项目 | 执行 `make migrate`；执行 `make verify-db CHECK=v020-project-name-migration` | 项目按 ID 升序使用固定 trim、空名替换、80 字符截断和后缀去重算法生成唯一名称 | DB 检查已验证，完整 v0.1.0 样例迁移未验证 | `scripts/migrate.py`、`scripts/verify_db.py`、本地命令输出 | 阻塞 |
 
 - 风险与回滚：删除项目涉及级联数据。实现前必须固定删除语义；若语义未固定，不得开始实现。

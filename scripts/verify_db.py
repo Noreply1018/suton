@@ -8,6 +8,8 @@ import time
 from app.db import connect, vector_literal
 from app.processing import confidence_level_for_score
 
+migrated_project_name = runpy.run_path("scripts/migrate.py")["migrated_project_name"]
+
 
 def require(condition: bool, message: str) -> None:
     if not condition:
@@ -372,6 +374,63 @@ def check_v020_schema() -> None:
     require(inconsistent_matches == 0, "question_matches denormalized source fields are inconsistent with chunks")
 
 
+def check_v020_project_name_migration() -> None:
+    fixtures = [
+        (1, "  高性能计算期末  ", "高性能计算期末"),
+        (2, "", "迁移项目 2"),
+        (3, None, "迁移项目 3"),
+        (4, "课" * 90, "课" * 80),
+        (5, "重复项目", "重复项目"),
+        (6, " 重复项目 ", "重复项目（迁移 2）"),
+        (7, "重复项目", "重复项目（迁移 3）"),
+    ]
+    used: set[str] = set()
+    for project_id, raw_name, expected_name in fixtures:
+        migrated_name = migrated_project_name(project_id, raw_name, used)
+        require(migrated_name == expected_name, f"project migration name mismatch for {project_id}: {migrated_name!r}")
+        require(1 <= len(migrated_name) <= 80, f"project migration name length out of range for {project_id}")
+
+    long_duplicate_base = "长" * 80
+    used = {long_duplicate_base, ("长" * 74) + "（迁移 2）"}
+    migrated_name = migrated_project_name(8, long_duplicate_base, used)
+    require(migrated_name == ("长" * 74) + "（迁移 3）", f"long duplicate suffix mismatch: {migrated_name!r}")
+    require(len(migrated_name) == 80, "long duplicate migration name must remain 80 characters")
+
+    with connect() as conn:
+        invalid_names = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM projects
+            WHERE length(name) < 1
+               OR length(name) > 80
+               OR name <> btrim(name)
+            """
+        ).fetchone()["value"]
+        duplicate_names = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM (
+              SELECT workspace_id, name
+              FROM projects
+              GROUP BY workspace_id, name
+              HAVING COUNT(*) > 1
+            ) duplicates
+            """
+        ).fetchone()["value"]
+        missing_workspace = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM projects
+            WHERE workspace_id <> 'local-default'
+               OR workspace_id IS NULL
+               OR updated_at IS NULL
+            """
+        ).fetchone()["value"]
+    require(invalid_names == 0, "migrated projects contain empty, overlong, or untrimmed names")
+    require(duplicate_names == 0, "migrated projects contain duplicate names within workspace")
+    require(missing_workspace == 0, "migrated projects are missing workspace_id or updated_at")
+
+
 def check_project_created() -> None:
     name = os.getenv("PROJECT_NAME", "高等数学（上）期末复习")
     require(scalar("SELECT COUNT(*) AS value FROM projects WHERE name = %s", (name,)) > 0, "project not found")
@@ -696,6 +755,7 @@ def main() -> None:
     checks = {
         "schema-v0.1.0": check_schema,
         "v020-schema": check_v020_schema,
+        "v020-project-name-migration": check_v020_project_name_migration,
         "project-created": check_project_created,
         "project-summary": check_project_summary,
         "project-count-unchanged": check_project_count_unchanged,
