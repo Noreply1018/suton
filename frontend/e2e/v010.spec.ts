@@ -508,6 +508,44 @@ test("v020-processing-failure：失败轨道与修复入口", async ({ page }) =
   }
 });
 
+test("v020-processing-refresh：刷新后从后端恢复处理失败状态", async ({ page }) => {
+  const seed = seedProcessingFailure();
+  try {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+    const row = page.getByTestId(`document-row-${seed.reprocess_document_id}`);
+    await expect(row).toContainText("processing-failed-reprocess.pdf");
+    await expect(row.getByTestId("processing-stage-node-extracting_text")).toContainText("失败");
+    await expect(row.getByTestId(`document-failure-reason-${seed.reprocess_document_id}`)).toContainText("PDF 文件损坏，无法读取");
+
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    const documentsResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/projects/${seed.project_id}/documents`) && response.request().method() === "GET"
+    );
+    await page.reload();
+    expect((await documentsResponse).status()).toBe(200);
+
+    const restoredRow = page.getByTestId(`document-row-${seed.reprocess_document_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await expect(restoredRow).toContainText("processing-failed-reprocess.pdf");
+    await expect(restoredRow.getByTestId("processing-stage-node-uploaded")).toContainText("上传完成");
+    await expect(restoredRow.getByTestId("processing-stage-node-extracting_text")).toContainText("失败");
+    await expect(restoredRow.getByTestId(`document-failure-reason-${seed.reprocess_document_id}`)).toContainText("PDF 文件损坏，无法读取");
+    const failureActions = restoredRow.getByTestId(`document-failure-actions-${seed.reprocess_document_id}`);
+    await expect(failureActions.getByRole("button", { name: "重新处理" })).toBeVisible();
+    await expect(failureActions.getByRole("button", { name: "删除资料" })).toBeVisible();
+    await expect(failureActions.getByRole("button", { name: "查看失败原因" })).toBeVisible();
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
 test("v020-source-reader-open：点击来源打开 PDF 页与来源详情", async ({ page }) => {
   const seed = seedSourceReader();
   await page.goto(`/?questionId=${seed.question_id}`);

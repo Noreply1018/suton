@@ -82,7 +82,7 @@ evidence-package-with-tests:
 	uv run --project backend python scripts/collect_evidence.py --with-tests
 
 verify-e2e:
-	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits|v020-project-rename-delete|v020-project-delete-selection|v020-document-delete|v020-document-health|v020-document-detail-fields|v020-document-scope-disabled|v020-processing-failure|v020-source-reader-open|v020-source-reader-switch|v020-source-reader-page-nav|v020-source-reader-file-missing|v020-source-reader-stale-source|v020-confidence-levels)$$ ]]; then \
+	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits|v020-project-rename-delete|v020-project-delete-selection|v020-document-delete|v020-document-health|v020-document-detail-fields|v020-document-scope-disabled|v020-processing-failure|v020-processing-refresh|v020-source-reader-open|v020-source-reader-switch|v020-source-reader-page-nav|v020-source-reader-file-missing|v020-source-reader-stale-source|v020-confidence-levels)$$ ]]; then \
 		uv run --project backend python scripts/dev_check.py --skip-embedding; \
 	else \
 		uv run --project backend python scripts/dev_check.py; \
