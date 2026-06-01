@@ -9,8 +9,28 @@
 - 发布必要性：必须发布
 - 用户可见影响：用户可以清理错误资料、修复失败处理，判断资料是否可检索，并控制题目检索在哪些资料中发生。
 - 涉及模块：前端资料管理、后端资料 API、数据库、文件存储、后台任务、检索。
-- 配置、接口或数据结构变化：资料接口必须支持删除、重新处理、详情查询、资料健康度查询和检索范围参数；数据库必须保存处理详情、最近处理时间、页数、可提取文字页数、chunk 数和可检索状态。文字层质量按 `可提取文字页数 / 总页数` 计算，固定分为：`良好` 为 90% 至 100%，`一般` 为 50% 至 89%，`不足` 为 1% 至 49%，`不可检索` 为 0%。
+- 配置、接口或数据结构变化：资料接口必须支持删除、重新处理、详情查询、资料健康度查询和检索范围参数；数据库必须保存处理详情、最近处理时间、页数、可提取文字页数、chunk 数和可检索状态。文字层质量按 `可提取文字页数 / 总页数` 计算，不做四舍五入：`良好` 为 ratio >= 0.90，`一般` 为 0.50 <= ratio < 0.90，`不足` 为 0 < ratio < 0.50，`不可检索` 为 ratio = 0。
 - 兼容性要求：删除资料后不得继续在检索结果中展示该资料来源；重新处理必须在同一事务语义下废弃旧页面文本、chunk、embedding 和旧来源结果，再写入新处理结果，避免重复索引。
+- 资料列表与详情契约：
+  - 资料列表固定按 `created_at DESC, id DESC` 排序，显示在中间主工作区的资料区域内；超过区域高度时只滚动资料列表，不滚动整页。
+  - 每份资料行固定展示文件名、处理状态、页数、文字层质量、chunk 数、可检索状态和最近处理时间；文件名超过一行时中间截断，保留扩展名。
+  - 资料详情入口固定为点击资料行；详情层在桌面端显示在主工作区内，移动端显示为全屏详情层。
+  - 资料详情字段固定为：文件名、内容类型、页数、可提取文字页数、文字层质量、chunk 数、可检索状态、处理状态、处理阶段、失败阶段、失败码、失败原因、创建时间、最近处理时间。
+  - `text_quality` 计算使用 `extractable_page_count / page_count` 的原始小数值，不做百分比取整；`page_count = 0` 时固定为 `unsearchable`；`extractable_page_count` 不得大于 `page_count`。
+  - `searchable = true` 仅当 `status = completed`、`chunk_count > 0` 且 `text_quality` 不是 `unsearchable`；其他状态固定为 `false`。
+  - 扫描件 PDF 不进入 OCR；若 PyMuPDF 无可提取文字层，资料状态固定为 `unsupported`，`text_quality = unsearchable`，`searchable = false`，`failure_code = no_text_layer`，`failure_reason = PDF 无可提取文字层，v0.2.0 不进入 OCR`。
+- 删除与重处理契约：
+  - 资料删除必须使用 `data-001-v020-model-api.md` 定义的删除暂存区两阶段流程；删除成功后资料列表立即移除该资料。
+  - 删除资料只删除该资料关联的 `question_matches`，保留 `questions`；历史题目再次打开时不得展示已删除资料来源。
+  - 重新处理不得删除、移动或覆盖原上传 PDF 文件；重新处理只替换该资料的页面文本、chunk、embedding 和关联来源结果。
+  - 重新处理入口只在 `completed`、`failed`、`unsupported` 状态展示；`uploaded` 和 `processing` 状态不展示重新处理入口；绕过前端对 `uploaded` 或 `processing` 资料调用重处理接口时，后端按 `data-001-v020-model-api.md` 返回 HTTP 409 和 `资料正在处理`。
+  - 重新处理提交成功后资料状态固定回到 `uploaded`，`processing_stage = uploaded`，并重新进入处理轨道；旧健康度字段在新处理完成前保留但界面必须标记为 `重新处理中`。
+  - 资料删除和重新处理的 API 字段、错误状态与 `detail` 文案以 `data-001-v020-model-api.md` 为准。
+- 检索范围契约：
+  - 新题检索和历史题重新检索都必须使用同一套资料范围选择控件。
+  - 默认范围为当前项目全部 `searchable = true` 的资料。
+  - 用户选择指定资料时，只能选择当前项目内 `searchable = true` 的资料；不可检索资料在选择器中显示为禁用行，并展示禁用原因。
+  - 用户取消全部资料选择时，提交按钮禁用；若绕过前端提交空数组，后端按 `data-001-v020-model-api.md` 返回 `检索范围不能为空`。
 - 验收标准：
   - PDF 可以删除，删除前有确认。
   - 删除后资料列表、数据库、文件存储和检索结果保持一致。
@@ -20,6 +40,7 @@
   - 资料详情展示文件名、页数、文字层质量、chunk 数、可检索状态、处理状态、失败原因、最近处理时间。
   - 资料列表中每份资料以一行轻量健康信息展示：`页数 · 文字层质量 · chunk 数 · 可检索状态`。
   - 检索时可以选择全部资料或指定资料。
+  - 不可检索资料不能被选入检索范围。
   - 资料列表不撑长页面。
 - 验证矩阵：
 
@@ -29,5 +50,7 @@
 | 重新处理 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 Redis/RQ、真实 PostgreSQL/pgvector、DashScope `DASHSCOPE_API_KEY`、Linux、Playwright 浏览器 | 已上传并处理 `tests/fixtures/text-layer-material.pdf` | 执行 `make verify-e2e SCENARIO=v020-document-reprocess`；执行 `make verify-db CHECK=v020-document-reprocess-no-duplicates` | 旧索引被替换，不出现重复 chunk，旧来源结果不再展示 | 未验证 | 待补充 | 阻塞 |
 | 检索范围筛选 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL/pgvector、DashScope `DASHSCOPE_API_KEY`、Linux、Playwright 浏览器 | 已上传两份资料且均完成索引，其中包含 `tests/fixtures/text-layer-material.pdf` | 执行 `make verify-e2e SCENARIO=v020-document-scope-search` | 结果只来自选中的资料范围 | 未验证 | 待补充 | 阻塞 |
 | 资料健康度 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 已上传并处理 `tests/fixtures/text-layer-material.pdf` 和 `tests/fixtures/scanned.pdf` | 执行 `make verify-e2e SCENARIO=v020-document-health`；执行 `make verify-db CHECK=v020-document-health` | 资料列表和详情展示页数、文字层质量、chunk 数和可检索状态，扫描件显示不可检索或失败原因 | 未验证 | 待补充 | 阻塞 |
+| 资料详情字段 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 已上传并处理完成、失败、unsupported 三类资料 | 执行 `make verify-e2e SCENARIO=v020-document-detail-fields`；执行 `make verify-api-contract CHECK=v020-document-detail-fields` | 详情展示固定字段；API 不返回 `storage_path`；失败和 unsupported 资料展示固定失败码与原因 | 未验证 | 待补充 | 阻塞 |
+| 不可检索资料范围 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 当前项目存在 `searchable = false` 的资料和至少一份可检索资料 | 执行 `make verify-e2e SCENARIO=v020-document-scope-disabled`；执行 `make verify-api-contract CHECK=v020-document-scope-disabled` | 不可检索资料在选择器中禁用；后端拒绝把不可检索资料作为检索范围 | 未验证 | 待补充 | 阻塞 |
 
 - 风险与回滚：资料删除和重新处理容易破坏来源一致性。若文件、数据库和向量索引不能一致更新，必须阻塞。

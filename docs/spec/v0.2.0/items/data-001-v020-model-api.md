@@ -14,10 +14,12 @@
 - 数据模型契约：
   - `workspaces` 不在 v0.2.0 新增；单用户工作区固定为字符串常量 `local-default`，所有唯一性以该默认工作区为边界。
   - `projects` 必须包含 `id`、`workspace_id`、`name`、`created_at`、`updated_at`；`workspace_id` 固定写入 `local-default`；数据库必须建立 `(workspace_id, name)` 唯一约束。
+  - `projects.name` 保存 trim 后名称，长度固定为 1 至 80 个字符；超过 80 个字符时后端不得截断用户输入，必须返回固定错误。
   - `documents` 必须包含 `id`、`project_id`、`filename`、`content_type`、`storage_path`、`page_count`、`extractable_page_count`、`chunk_count`、`text_quality`、`searchable`、`status`、`processing_stage`、`failed_stage`、`failure_code`、`failure_reason`、`created_at`、`processed_at`、`updated_at`。
   - `documents.status` 固定枚举为 `uploaded`、`processing`、`completed`、`failed`、`unsupported`、`deleting`；`documents.processing_stage` 固定枚举为 `uploaded`、`extracting_text`、`chunking`、`embedding`、`indexing`、`completed`、`failed`。
-  - `documents.failed_stage` 在失败时等于失败发生的 `processing_stage`；未失败时为 `NULL`。
+  - `documents.failed_stage` 在失败时等于失败发生前正在执行的非终态阶段，只能是 `uploaded`、`extracting_text`、`chunking`、`embedding`、`indexing`；未失败时为 `NULL`。
   - `documents.failure_code` 固定枚举为 `invalid_pdf`、`unsupported_file_type`、`no_text_layer`、`extract_text_failed`、`chunking_failed`、`embedding_failed`、`indexing_failed`、`storage_missing`、`delete_file_failed`、`unknown_processing_error`；未失败时为 `NULL`。
+  - `documents.failure_reason` 必须按 `failure_code` 固定映射：`invalid_pdf` 为 `PDF 文件损坏，无法读取`；`unsupported_file_type` 为 `文件类型不受支持`；`no_text_layer` 为 `PDF 无可提取文字层，v0.2.0 不进入 OCR`；`extract_text_failed` 为 `提取文字失败`；`chunking_failed` 为 `切块失败`；`embedding_failed` 为 `生成 embedding 失败`；`indexing_failed` 为 `建立索引失败`；`storage_missing` 为 `资料文件不存在`；`delete_file_failed` 为 `资料文件删除失败`；`unknown_processing_error` 为 `资料处理失败`。
   - `documents.text_quality` 固定枚举为 `good`、`fair`、`poor`、`unsearchable`，展示文案分别为 `良好`、`一般`、`不足`、`不可检索`。
   - `chunks` 必须包含 `id`、`document_id`、`page_id`、`page_no`、`text`、`page_start_char`、`page_end_char`、`embedding`、`embedding_provider`、`embedding_model`、`embedding_dimension`、`embedding_call`、`created_at`；`page_start_char` 和 `page_end_char` 是 chunk 在规范化页文本中的半开区间 `[start, end)`。
   - `questions` 必须包含 `id`、`project_id`、`text`、`status`、`failure_code`、`failure_reason`、`last_search_at`、`created_at`、`updated_at`；`status` 固定枚举为 `searching`、`completed`、`no_reliable_source`、`failed`；`failure_code` 固定枚举为 `embedding_failed`、`source_context_failed`、`search_failed`。
@@ -29,13 +31,13 @@
   - 若 `page_start_char`、`page_end_char` 越界，或规范化页文本的 `[page_start_char, page_end_char)` 片段与 `chunks.text` 不一致，本次题目检索必须失败：`questions.status` 写入 `failed`，`questions.failure_code` 写入 `source_context_failed`，`questions.failure_reason` 写入 `来源上下文生成失败`，且不得写入该题任何 `question_matches`。
 - 接口契约：
   - `GET /projects` 返回项目列表，字段包含 `id`、`name`、`document_count`、`question_count`、`latest_status`、`updated_at`。
-  - `POST /projects` 请求体为 `{ "name": string }`；名称 trim 后为空返回 HTTP 400，`detail` 固定为 `项目名称不能为空`；成功返回项目对象；重名返回 HTTP 409，`detail` 固定为 `项目名称已存在`。
-  - `PATCH /projects/{project_id}` 请求体为 `{ "name": string }`；名称 trim 后与原名完全一致时返回当前项目对象且不更新时间戳；空名返回 HTTP 400，`detail` 固定为 `项目名称不能为空`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；重名返回 HTTP 409，`detail` 固定为 `项目名称已存在`。
+  - `POST /projects` 请求体为 `{ "name": string }`；名称 trim 后为空返回 HTTP 400，`detail` 固定为 `项目名称不能为空`；名称超过 80 个字符返回 HTTP 400，`detail` 固定为 `项目名称不能超过 80 个字符`；成功返回项目对象；重名返回 HTTP 409，`detail` 固定为 `项目名称已存在`。
+  - `PATCH /projects/{project_id}` 请求体为 `{ "name": string }`；名称 trim 后与原名完全一致时返回当前项目对象且不更新时间戳；空名返回 HTTP 400，`detail` 固定为 `项目名称不能为空`；名称超过 80 个字符返回 HTTP 400，`detail` 固定为 `项目名称不能超过 80 个字符`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；重名返回 HTTP 409，`detail` 固定为 `项目名称已存在`。
   - `DELETE /projects/{project_id}` 执行硬删除；成功返回 `{ "deleted": true, "project_id": number }`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；任一上传文件进入删除暂存区失败时返回 HTTP 500，`detail` 固定为 `项目文件删除失败`，数据库事务必须回滚。
   - `GET /projects/{project_id}/documents` 返回资料列表，字段包含资料健康度、处理阶段、失败详情和最近处理时间。
   - `GET /documents/{document_id}` 返回资料详情，字段必须完整包含 `documents` 数据模型契约中除 `storage_path` 外的用户可见字段；`storage_path` 不得返回给前端。
   - `POST /projects/{project_id}/documents` 仅接受 PDF；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；非 PDF 返回 HTTP 400，`detail` 固定为 `v0.2.0 只支持上传 PDF 文件`；空文件返回 HTTP 400，`detail` 固定为 `上传文件不能为空`；文件写入本地存储失败返回 HTTP 500，`detail` 固定为 `资料文件保存失败`；成功后返回资料对象，`status` 为 `uploaded`，`processing_stage` 为 `uploaded`。
-  - `POST /documents/{document_id}/reprocess` 清除该资料旧页面文本、chunk、embedding 和关联来源结果后重新排队处理；资料不存在返回 HTTP 404，`detail` 固定为 `资料不存在`；资料文件不存在返回 HTTP 404，`detail` 固定为 `资料文件不存在`；资料正在处理时返回 HTTP 409，`detail` 固定为 `资料正在处理`；重新排队失败返回 HTTP 500，`detail` 固定为 `资料重新处理排队失败`；成功返回资料对象，`status` 为 `uploaded`，`processing_stage` 为 `uploaded`。
+  - `POST /documents/{document_id}/reprocess` 清除该资料旧页面文本、chunk、embedding 和关联来源结果后重新排队处理；资料不存在返回 HTTP 404，`detail` 固定为 `资料不存在`；资料文件不存在返回 HTTP 404，`detail` 固定为 `资料文件不存在`；资料状态为 `uploaded` 或 `processing` 时返回 HTTP 409，`detail` 固定为 `资料正在处理`；重新排队失败返回 HTTP 500，`detail` 固定为 `资料重新处理排队失败`；成功返回资料对象，`status` 为 `uploaded`，`processing_stage` 为 `uploaded`。
   - `DELETE /documents/{document_id}` 执行硬删除；成功返回 `{ "deleted": true, "document_id": number }`；资料不存在返回 HTTP 404，`detail` 固定为 `资料不存在`；上传文件进入删除暂存区失败时返回 HTTP 500，`detail` 固定为 `资料文件删除失败`，数据库事务必须回滚。
   - `POST /projects/{project_id}/questions` 请求体为 `{ "text": string, "document_ids": number[] | null }`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；题目文本 trim 后为空返回 HTTP 400，`detail` 固定为 `题目不能为空`；`document_ids` 为 `null` 表示全部已完成且可检索资料；空数组返回 HTTP 400，`detail` 固定为 `检索范围不能为空`；指定资料跨项目、未完成或不可检索时返回 HTTP 400，`detail` 固定为 `检索范围包含不可用资料`；当前项目没有可检索资料时返回 HTTP 409，`detail` 固定为 `需先上传并处理资料`。
   - `GET /projects/{project_id}/questions` 返回题目历史，按 `last_search_at DESC, id DESC` 排序，字段包含最近一次检索状态和可见结果数量。
