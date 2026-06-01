@@ -112,7 +112,7 @@ make verify-secrets
 
 当前 `make verify-spec` 对 v0.2.0 只执行草案结构检查，用于防止缺文件、缺字段和核心约束缺失；它不代表 v0.2.0 功能、视觉、数据库或 E2E 验证已经实现。v0.2.0 实现期必须把本 spec 中列出的 `SCENARIO=v020-*`、`CHECK=v020-*` 和 `make verify-visual CHECK=*` 全部落成真实验证，再将条目状态更新为已完成。
 
-当前仓库已实现 `make verify-db CHECK=v020-schema`、`make verify-db CHECK=v020-confidence-levels` 和 `make verify-api-contract CHECK=v020-project-document-api`，但尚未实现 `make verify-visual`、`make verify-api-contract CHECK=v020-model-api`、`make verify-api-contract CHECK=v020-question-api` 和其余 `CHECK=v020-*` 检查；因此引用未实现命令或未完整覆盖场景的 v0.2.0 验证矩阵行必须保持 `未验证 / 待补充 / 阻塞`。进入 v0.2.0 实现验收前，必须先把这些命令作为真实 Make target 或真实 `CHECK` 分支落地，且不得用空脚本、mock、dry-run 或只检查文件存在的脚本替代真实验证。
+当前仓库已实现 `make verify-db CHECK=v020-schema`、`make verify-db CHECK=v020-confidence-levels`、`make verify-api-contract CHECK=v020-project-document-api` 和 `make verify-api-contract CHECK=v020-project-name-limits`，但尚未实现 `make verify-visual`、`make verify-api-contract CHECK=v020-model-api`、`make verify-api-contract CHECK=v020-question-api` 和其余 `CHECK=v020-*` 检查；因此引用未实现命令或未完整覆盖场景的 v0.2.0 验证矩阵行必须保持 `未验证 / 待补充 / 阻塞`。进入 v0.2.0 实现验收前，必须先把这些命令作为真实 Make target 或真实 `CHECK` 分支落地，且不得用空脚本、mock、dry-run 或只检查文件存在的脚本替代真实验证。
 
 v0.2.0 发布证据必须执行 `make evidence-package-with-tests` 生成，并固定写入 `tmp/v0.2.0-evidence-latest.md`；证据必须包含必需命令、退出码、执行时间、Git commit、数据准备命令、证据路径和结论，并通过 `make verify-secrets` 确认不含 secret。
 
@@ -167,3 +167,4 @@ v0.2.0 发布前必须满足：
 | 2026-06-01 | 落地首个 v0.2.0 数据库验证切片：`make migrate` 补齐 v0.2.0 schema 基础字段和约束，`make verify-db CHECK=v020-schema` 可真实校验当前数据库结构；其余 v0.2.0 验证仍保持阻塞。 | v0.2.0 实现推进 | `backend/app/schema.sql`、`scripts/migrate.py`、`scripts/verify_db.py` |
 | 2026-06-01 | 落地项目与资料 API 契约切片：`make verify-api-contract CHECK=v020-project-document-api` 覆盖项目对象、资料对象、排序、`latest_status`、`text_quality_label`、固定错误文案和 `storage_path` 隐藏规则；整体 `v020-model-api` 仍未完成。 | v0.2.0 实现推进 | `backend/app/main.py`、`scripts/verify_api_contract.py` |
 | 2026-06-01 | 落地置信层级数据库验证切片：`make verify-db CHECK=v020-confidence-levels` 使用真实 PostgreSQL/pgvector 固定向量覆盖 `strong`、`reference`、`low` 阈值；对应 E2E 和视觉验证仍未实现。 | v0.2.0 实现推进 | `backend/app/processing.py`、`scripts/verify_db.py` |
+| 2026-06-01 | 落地项目名称边界 API 契约切片：`make verify-api-contract CHECK=v020-project-name-limits` 覆盖空名、80 字符上限、重名、trim 创建和 trim 重命名；对应 E2E 和前端提示仍未实现。 | v0.2.0 实现推进 | `scripts/verify_api_contract.py` |

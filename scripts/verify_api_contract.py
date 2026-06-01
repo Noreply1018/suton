@@ -101,6 +101,14 @@ def create_document_record(project_id: int, **overrides: Any) -> int:
         return int(row["id"])
 
 
+def delete_project_records(project_ids: list[int]) -> None:
+    if not project_ids:
+        return
+    with connect() as conn:
+        conn.execute("DELETE FROM projects WHERE id = ANY(%s)", (project_ids,))
+        conn.commit()
+
+
 def project_updated_at(project_id: int):
     with connect() as conn:
         return conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project_id,)).fetchone()["updated_at"]
@@ -318,10 +326,62 @@ def check_project_document_api() -> None:
     require(project_updated_at(ready_project_id) > before_upload, "document upload did not update project updated_at")
 
 
+def check_project_name_limits() -> None:
+    client = TestClient(app)
+    suffix = str(time.time_ns())
+    created_ids: list[int] = []
+
+    def remember(response: Any) -> int:
+        project_id = int(response.json()["id"])
+        created_ids.append(project_id)
+        return project_id
+
+    try:
+        require_status(client.post("/projects", json={"name": "   "}), 400, "项目名称不能为空")
+        require_status(client.post("/projects", json={"name": "课" * 81}), 400, "项目名称不能超过 80 个字符")
+
+        base_name = f"边界项目-{suffix}"
+        trimmed = client.post("/projects", json={"name": f"  {base_name}  "})
+        require_status(trimmed, 200)
+        trimmed_id = remember(trimmed)
+        require(trimmed.json()["name"] == base_name, "project create did not trim name")
+        assert_project_shape(trimmed.json())
+
+        duplicate = client.post("/projects", json={"name": base_name})
+        require_status(duplicate, 409, "项目名称已存在")
+
+        legal_prefix = f"合法80-{suffix}-"
+        legal_80 = legal_prefix + ("界" * (80 - len(legal_prefix)))
+        require(len(legal_80) == 80, "legal project name fixture is not 80 characters")
+        legal = client.post("/projects", json={"name": legal_80})
+        require_status(legal, 200)
+        legal_id = remember(legal)
+        require(legal.json()["name"] == legal_80, "80-character project name was not preserved")
+
+        rename_empty = client.patch(f"/projects/{legal_id}", json={"name": " "})
+        require_status(rename_empty, 400, "项目名称不能为空")
+        rename_too_long = client.patch(f"/projects/{legal_id}", json={"name": "项" * 81})
+        require_status(rename_too_long, 400, "项目名称不能超过 80 个字符")
+        rename_duplicate = client.patch(f"/projects/{legal_id}", json={"name": base_name})
+        require_status(rename_duplicate, 409, "项目名称已存在")
+
+        renamed_name = f"重命名边界-{suffix}"
+        renamed = client.patch(f"/projects/{legal_id}", json={"name": f" {renamed_name} "})
+        require_status(renamed, 200)
+        require(renamed.json()["name"] == renamed_name, "project rename did not trim name")
+
+        require_status(client.patch("/projects/999999999", json={"name": "不存在"}), 404, "项目不存在")
+        require_status(client.post("/projects", json={"name": base_name}), 409, "项目名称已存在")
+        require_status(client.patch(f"/projects/{trimmed_id}", json={"name": renamed_name}), 409, "项目名称已存在")
+    finally:
+        delete_project_records(created_ids)
+
+
 def main() -> None:
     check = os.getenv("CHECK", "v020-project-document-api")
     checks = {
         "v020-project-document-api": check_project_document_api,
+        "v020-project-name-limits": check_project_name_limits,
     }
     if check not in checks:
         raise SystemExit(f"unsupported CHECK={check}")
