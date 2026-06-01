@@ -13,6 +13,13 @@ from app.processing import create_uploaded_document, queue_process_document, sea
 
 app = FastAPI(title="Suton v0.1.0 API")
 
+TEXT_QUALITY_LABELS = {
+    "good": "良好",
+    "fair": "一般",
+    "poor": "不足",
+    "unsearchable": "不可检索",
+}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -31,23 +38,7 @@ def health() -> dict[str, str]:
 def list_projects() -> list[dict]:
     with connect() as conn:
         return conn.execute(
-            """
-            SELECT
-              p.id,
-              p.name,
-              p.created_at,
-              COUNT(DISTINCT d.id)::int AS document_count,
-              COUNT(DISTINCT q.id)::int AS question_count,
-              COALESCE(
-                (SELECT d2.status FROM documents d2 WHERE d2.project_id = p.id ORDER BY d2.created_at DESC LIMIT 1),
-                'none'
-              ) AS latest_status
-            FROM projects p
-            LEFT JOIN documents d ON d.project_id = p.id
-            LEFT JOIN questions q ON q.project_id = p.id
-            GROUP BY p.id
-            ORDER BY p.created_at DESC
-            """
+            project_select_sql() + " ORDER BY p.updated_at DESC, p.id DESC"
         ).fetchall()
 
 
@@ -56,33 +47,25 @@ def create_project(payload: dict[str, str]) -> dict:
     name = (payload.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="项目名称不能为空")
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="项目名称不能超过 80 个字符")
     with connect() as conn:
-        row = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING *", (name,)).fetchone()
-        conn.commit()
-        return row
+        try:
+            row = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (name,)).fetchone()
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            if getattr(exc, "sqlstate", "") == "23505":
+                raise HTTPException(status_code=409, detail="项目名称已存在") from exc
+            raise
+    return get_project(row["id"])
 
 
 @app.get("/projects/{project_id}")
 def get_project(project_id: int) -> dict:
     with connect() as conn:
         project = conn.execute(
-            """
-            SELECT
-              p.id,
-              p.name,
-              p.created_at,
-              COUNT(DISTINCT d.id)::int AS document_count,
-              COUNT(DISTINCT q.id)::int AS question_count,
-              COALESCE(
-                (SELECT d2.status FROM documents d2 WHERE d2.project_id = p.id ORDER BY d2.created_at DESC LIMIT 1),
-                'none'
-              ) AS latest_status
-            FROM projects p
-            LEFT JOIN documents d ON d.project_id = p.id
-            LEFT JOIN questions q ON q.project_id = p.id
-            WHERE p.id = %s
-            GROUP BY p.id
-            """,
+            project_select_sql("WHERE p.id = %s"),
             (project_id,),
         ).fetchone()
         if not project:
@@ -90,37 +73,72 @@ def get_project(project_id: int) -> dict:
         return project
 
 
+@app.patch("/projects/{project_id}")
+def update_project(project_id: int, payload: dict[str, str]) -> dict:
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="项目名称不能为空")
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="项目名称不能超过 80 个字符")
+    with connect() as conn:
+        current = conn.execute("SELECT name FROM projects WHERE id = %s", (project_id,)).fetchone()
+        if not current:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        if current["name"] == name:
+            return get_project(project_id)
+        try:
+            conn.execute("UPDATE projects SET name = %s, updated_at = now() WHERE id = %s", (name, project_id))
+            conn.commit()
+        except Exception as exc:
+            conn.rollback()
+            if getattr(exc, "sqlstate", "") == "23505":
+                raise HTTPException(status_code=409, detail="项目名称已存在") from exc
+            raise
+    return get_project(project_id)
+
+
 @app.get("/projects/{project_id}/documents")
 def list_documents(project_id: int) -> list[dict]:
     with connect() as conn:
-        return conn.execute(
-            """
-            SELECT id, project_id, filename, content_type, storage_path, page_count, status, failure_reason, created_at
-            FROM documents
-            WHERE project_id = %s
-            ORDER BY created_at DESC
-            """,
-            (project_id,),
-        ).fetchall()
+        project = conn.execute("SELECT id FROM projects WHERE id = %s", (project_id,)).fetchone()
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        rows = conn.execute(document_select_sql("WHERE project_id = %s") + " ORDER BY created_at DESC, id DESC", (project_id,)).fetchall()
+        return [document_response(row) for row in rows]
+
+
+@app.get("/documents/{document_id}")
+def get_document(document_id: int) -> dict:
+    with connect() as conn:
+        document = conn.execute(document_select_sql("WHERE id = %s"), (document_id,)).fetchone()
+    if not document:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    return document_response(document)
 
 
 @app.post("/projects/{project_id}/documents")
 def upload_document(project_id: int, file: UploadFile = File(...)) -> dict:
     if file.content_type != "application/pdf" or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="v0.1.0 只支持上传 PDF 文件")
+        raise HTTPException(status_code=400, detail="v0.2.0 只支持上传 PDF 文件")
     upload_root = Path(settings.upload_dir)
-    upload_root.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         project = conn.execute("SELECT id FROM projects WHERE id = %s", (project_id,)).fetchone()
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
     safe_name = Path(file.filename).name
     storage_path = upload_root / f"project-{project_id}-{safe_name}"
-    with storage_path.open("wb") as output:
-        shutil.copyfileobj(file.file, output)
+    try:
+        upload_root.mkdir(parents=True, exist_ok=True)
+        with storage_path.open("wb") as output:
+            shutil.copyfileobj(file.file, output)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="资料文件保存失败") from exc
+    if storage_path.stat().st_size == 0:
+        storage_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="上传文件不能为空")
     document_id = create_uploaded_document(project_id, safe_name, "application/pdf", str(storage_path))
     queue_process_document(document_id)
-    return {"id": document_id, "filename": safe_name, "status": "uploaded"}
+    return get_document(document_id)
 
 
 @app.post("/projects/{project_id}/questions")
@@ -179,4 +197,61 @@ def get_document_file(document_id: int) -> FileResponse:
         document = conn.execute("SELECT storage_path, filename FROM documents WHERE id = %s", (document_id,)).fetchone()
     if not document:
         raise HTTPException(status_code=404, detail="资料不存在")
+    if not Path(document["storage_path"]).exists():
+        raise HTTPException(status_code=404, detail="资料文件不存在")
     return FileResponse(document["storage_path"], media_type="application/pdf", filename=document["filename"])
+
+
+def project_select_sql(where_clause: str = "") -> str:
+    return f"""
+            SELECT
+              p.id,
+              p.workspace_id,
+              p.name,
+              COUNT(DISTINCT d.id)::int AS document_count,
+              COUNT(DISTINCT q.id)::int AS question_count,
+              CASE
+                WHEN COUNT(DISTINCT d.id) = 0 THEN 'empty'
+                WHEN COUNT(DISTINCT d.id) FILTER (WHERE d.status IN ('uploaded', 'processing', 'deleting')) > 0 THEN 'processing'
+                WHEN COUNT(DISTINCT d.id) FILTER (WHERE d.status IN ('failed', 'unsupported')) > 0 THEN 'failed'
+                ELSE 'ready'
+              END AS latest_status,
+              p.created_at,
+              p.updated_at
+            FROM projects p
+            LEFT JOIN documents d ON d.project_id = p.id
+            LEFT JOIN questions q ON q.project_id = p.id
+            {where_clause}
+            GROUP BY p.id
+            """
+
+
+def document_select_sql(where_clause: str = "") -> str:
+    return f"""
+            SELECT
+              id,
+              project_id,
+              filename,
+              content_type,
+              page_count,
+              extractable_page_count,
+              chunk_count,
+              text_quality,
+              searchable,
+              status,
+              processing_stage,
+              failed_stage,
+              failure_code,
+              failure_reason,
+              created_at,
+              processed_at,
+              updated_at
+            FROM documents
+            {where_clause}
+            """
+
+
+def document_response(row: dict) -> dict:
+    result = dict(row)
+    result["text_quality_label"] = TEXT_QUALITY_LABELS[result["text_quality"]]
+    return result

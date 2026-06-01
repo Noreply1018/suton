@@ -207,6 +207,7 @@ def create_uploaded_document(project_id: int, filename: str, content_type: str, 
             """,
             (project_id, filename, content_type, storage_path),
         ).fetchone()
+        conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (project_id,))
         conn.commit()
         return row["id"]
 

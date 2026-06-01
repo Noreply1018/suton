@@ -147,11 +147,10 @@ WITH document_stats AS (
 )
 UPDATE documents d
 SET
-  page_count = CASE WHEN d.status = 'completed' THEN COALESCE(d.page_count, document_stats.stored_page_count) ELSE d.page_count END,
-  extractable_page_count = CASE WHEN d.status = 'completed' THEN document_stats.extractable_page_count ELSE d.extractable_page_count END,
-  chunk_count = CASE WHEN d.status = 'completed' THEN document_stats.chunk_count ELSE d.chunk_count END,
+  page_count = COALESCE(d.page_count, document_stats.stored_page_count),
+  extractable_page_count = document_stats.extractable_page_count,
+  chunk_count = document_stats.chunk_count,
   text_quality = CASE
-    WHEN d.status <> 'completed' THEN d.text_quality
     WHEN COALESCE(d.page_count, document_stats.stored_page_count, 0) <= 0 OR document_stats.extractable_page_count = 0 THEN 'unsearchable'
     WHEN document_stats.extractable_page_count::double precision / COALESCE(d.page_count, document_stats.stored_page_count) >= 0.90 THEN 'good'
     WHEN document_stats.extractable_page_count::double precision / COALESCE(d.page_count, document_stats.stored_page_count) >= 0.50 THEN 'fair'

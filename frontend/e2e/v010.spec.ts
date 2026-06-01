@@ -60,7 +60,7 @@ test("document-upload：拒绝非 PDF 文件", async ({ page }) => {
   await createProject(page, "非 PDF 验证项目");
 
   await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/not-pdf.txt"));
-  await expect(page.getByText("v0.1.0 只支持上传 PDF 文件")).toBeVisible();
+  await expect(page.getByText("v0.2.0 只支持上传 PDF 文件")).toBeVisible();
 });
 
 test("minimal-loop/source-results：真实最小闭环返回来源结果", async ({ page }) => {

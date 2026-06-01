@@ -14,7 +14,7 @@ v0.2.0 的一句话定义是：
 
 ## 当前建设状态
 
-v0.2.0 仍处于 spec 建设阶段，尚未进入实现期。条目状态只表示文档语义成熟度，不表示功能完成；验证矩阵中没有真实证据前不得把任何条目标记为“已完成”。
+v0.2.0 已从 spec 建设进入早期实现切片阶段，但整体仍未完成。条目状态只表示文档语义成熟度，不表示功能完成；验证矩阵中没有真实证据前不得把任何条目标记为“已完成”。
 
 | 条目 | 状态 | 当前结论 | 下一步 |
 |---|---|---|---|
@@ -112,7 +112,7 @@ make verify-secrets
 
 当前 `make verify-spec` 对 v0.2.0 只执行草案结构检查，用于防止缺文件、缺字段和核心约束缺失；它不代表 v0.2.0 功能、视觉、数据库或 E2E 验证已经实现。v0.2.0 实现期必须把本 spec 中列出的 `SCENARIO=v020-*`、`CHECK=v020-*` 和 `make verify-visual CHECK=*` 全部落成真实验证，再将条目状态更新为已完成。
 
-当前仓库已实现 `make verify-db CHECK=v020-schema`，但尚未实现 `make verify-visual`、`make verify-api-contract` 和其余 `CHECK=v020-*` 检查；因此引用未实现命令或未完整覆盖场景的 v0.2.0 验证矩阵行必须保持 `未验证 / 待补充 / 阻塞`。进入 v0.2.0 实现验收前，必须先把这些命令作为真实 Make target 或真实 `CHECK` 分支落地，且不得用空脚本、mock、dry-run 或只检查文件存在的脚本替代真实验证。
+当前仓库已实现 `make verify-db CHECK=v020-schema` 和 `make verify-api-contract CHECK=v020-project-document-api`，但尚未实现 `make verify-visual`、`make verify-api-contract CHECK=v020-model-api`、`make verify-api-contract CHECK=v020-question-api` 和其余 `CHECK=v020-*` 检查；因此引用未实现命令或未完整覆盖场景的 v0.2.0 验证矩阵行必须保持 `未验证 / 待补充 / 阻塞`。进入 v0.2.0 实现验收前，必须先把这些命令作为真实 Make target 或真实 `CHECK` 分支落地，且不得用空脚本、mock、dry-run 或只检查文件存在的脚本替代真实验证。
 
 v0.2.0 发布证据必须执行 `make evidence-package-with-tests` 生成，并固定写入 `tmp/v0.2.0-evidence-latest.md`；证据必须包含必需命令、退出码、执行时间、Git commit、数据准备命令、证据路径和结论，并通过 `make verify-secrets` 确认不含 secret。
 
@@ -165,3 +165,4 @@ v0.2.0 发布前必须满足：
 | 2026-06-01 | 扫尾主观验收口径：将处理进度、题目失败、来源失败和资料健康信息改为固定图标、固定组件和后端错误文案。 | v0.2.0 spec 逐项建设 | `acceptance-checklist.md`、`items/feature-002-document-management.md`、`items/feature-004-source-reader.md`、`items/feature-005-question-workflow.md` |
 | 2026-06-01 | 固定工作台当前上下文验收口径：项目标题栏、题目工具栏和来源阅读区必须展示可核验字段，替代“清晰当前上下文”的主观描述。 | v0.2.0 spec 逐项建设 | `README.md`、`acceptance-checklist.md`、`items/design-002-workspace-layout.md` |
 | 2026-06-01 | 落地首个 v0.2.0 数据库验证切片：`make migrate` 补齐 v0.2.0 schema 基础字段和约束，`make verify-db CHECK=v020-schema` 可真实校验当前数据库结构；其余 v0.2.0 验证仍保持阻塞。 | v0.2.0 实现推进 | `backend/app/schema.sql`、`scripts/migrate.py`、`scripts/verify_db.py` |
+| 2026-06-01 | 落地项目与资料 API 契约切片：`make verify-api-contract CHECK=v020-project-document-api` 覆盖项目对象、资料对象、排序、`latest_status`、`text_quality_label`、固定错误文案和 `storage_path` 隐藏规则；整体 `v020-model-api` 仍未完成。 | v0.2.0 实现推进 | `backend/app/main.py`、`scripts/verify_api_contract.py` |

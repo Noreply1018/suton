@@ -11,7 +11,7 @@ export API_URL ?= http://127.0.0.1:8000
 export NEXT_PUBLIC_API_URL ?= http://127.0.0.1:8000
 export PYTHONPATH := backend
 
-.PHONY: env-info doctor reset-demo dev start docker-build docker-prod-up docker-prod-down migrate process-demo verify-db verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test install
+.PHONY: env-info doctor reset-demo dev start docker-build docker-prod-up docker-prod-down migrate process-demo verify-db verify-api-contract verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test install
 
 install:
 	uv sync --project backend
@@ -66,6 +66,9 @@ search-question:
 verify-db:
 	uv run --project backend python scripts/verify_db.py
 
+verify-api-contract:
+	uv run --project backend python scripts/verify_api_contract.py
+
 verify-spec:
 	uv run --project backend python scripts/verify_release_gate.py
 
@@ -91,7 +94,7 @@ verify-e2e:
 	 uv run --project backend python scripts/wait_http.py http://127.0.0.1:8000/health http://127.0.0.1:3000 && \
 	 E2E_BASE_URL=http://127.0.0.1:3000 pnpm exec playwright test; status=$$?; cleanup; exit $$status)
 
-test: backend-test frontend-test
+test: backend-test frontend-test verify-api-contract
 
 backend-test:
 	uv run --project backend pytest backend/tests scripts/tests

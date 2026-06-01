@@ -24,7 +24,7 @@ def test_upload_rejects_non_pdf_extension() -> None:
         files={"file": ("not-pdf.txt", b"not a pdf", "text/plain")},
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "v0.1.0 只支持上传 PDF 文件"
+    assert response.json()["detail"] == "v0.2.0 只支持上传 PDF 文件"
 
 
 def test_upload_rejects_pdf_name_with_wrong_content_type() -> None:
@@ -34,4 +34,4 @@ def test_upload_rejects_pdf_name_with_wrong_content_type() -> None:
         files={"file": ("fake.pdf", b"not a pdf", "text/plain")},
     )
     assert response.status_code == 400
-    assert response.json()["detail"] == "v0.1.0 只支持上传 PDF 文件"
+    assert response.json()["detail"] == "v0.2.0 只支持上传 PDF 文件"
