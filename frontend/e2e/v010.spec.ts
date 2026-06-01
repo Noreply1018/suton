@@ -876,6 +876,44 @@ test("visual-source-page-nav：生成来源页码导航截图", async ({ page })
   }
 });
 
+test("visual-current-context：生成当前上下文字段截图", async ({ page }) => {
+  const seed = seedSourceReader();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const screenshotPath = resolve(evidenceDir, "1440x900-current-context.png");
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+    const projectContext = page.getByTestId("project-context-bar");
+    await expect(projectContext.getByTestId("project-context-name")).toContainText(seed.project_name);
+    await expect(projectContext.getByTestId("project-context-meta")).toContainText("可检索");
+    await expect(projectContext.getByTestId("project-context-meta")).toContainText("1 份资料");
+    await expect(projectContext.getByTestId("project-context-meta")).toContainText("1 道题目");
+
+    const questionToolbar = page.getByTestId("question-context-toolbar");
+    await expect(questionToolbar.getByTestId("question-context-text")).toContainText("source reader question");
+    await expect(questionToolbar.getByTestId("question-context-status")).toContainText("已找到来源");
+    await expect(questionToolbar.getByRole("button", { name: "检索范围" })).toBeVisible();
+    await expect(questionToolbar.getByRole("button", { name: "进入专注模式" })).toBeVisible();
+
+    const firstSource = page.getByTestId("source-card").first();
+    await firstSource.getByRole("button", { name: /source-reader\.pdf/ }).click();
+    await expect(firstSource).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-reader-filename")).toContainText("source-reader.pdf");
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(hasHorizontalOverflow).toBe(false);
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
 test("visual-source-reader-mobile：生成移动端来源全屏详情截图", async ({ page }) => {
   const seed = seedSourceReader();
   const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");

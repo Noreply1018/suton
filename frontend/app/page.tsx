@@ -14,6 +14,8 @@ import {
   FolderOpen,
   Library,
   Loader2,
+  Maximize2,
+  Minimize2,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -136,6 +138,7 @@ export default function Home() {
   const [highlightedDocumentId, setHighlightedDocumentId] = useState<number | null>(null);
   const [materialIndexNotice, setMaterialIndexNotice] = useState("");
   const [pendingQuestionFocus, setPendingQuestionFocus] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const activeProjectIdRef = useRef<number | null>(null);
@@ -158,6 +161,8 @@ export default function Home() {
     [documents, selectedDocumentIds]
   );
   const questionSubmitDisabled = busy || !activeProject || (scopeMode === "selected" && selectedScopeIds.length === 0);
+  const currentQuestionText = result?.text.trim() || question.trim() || "输入题目开始检索";
+  const currentQuestionStatus = busy ? "正在检索来源" : result ? questionStatusLabel(result.status) : "未检索";
 
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
@@ -535,7 +540,12 @@ export default function Home() {
 
   return (
     <main className="paper-shell min-h-screen text-ink" data-testid="app-shell">
-      <div className="grid min-h-screen grid-cols-[260px_minmax(0,1fr)_390px] max-2xl:grid-cols-[240px_minmax(0,1fr)_360px] max-xl:grid-cols-1">
+      <div
+        className={`grid min-h-screen ${
+          focusMode ? "grid-cols-[minmax(420px,0.8fr)_minmax(640px,1.2fr)]" : "grid-cols-[260px_minmax(0,1fr)_390px] max-2xl:grid-cols-[240px_minmax(0,1fr)_360px]"
+        } max-xl:grid-cols-1`}
+      >
+        {!focusMode && (
         <aside className="paper-sidebar flex min-h-screen flex-col px-5 py-6 max-xl:min-h-0" data-testid="sidebar-nav">
           <div className="mb-7">
             <div className="mb-2 flex items-center gap-3">
@@ -583,7 +593,7 @@ export default function Home() {
                 >
                   <span className="block truncate font-semibold">{project.name}</span>
                   <span className="mt-1 block text-xs text-[#526050]">
-                    {project.document_count} 份资料 · {project.question_count} 道题 · {statusLabel(project.latest_status)}
+                    {project.document_count} 份资料 · {project.question_count} 道题 · {projectStatusLabel(project.latest_status)}
                   </span>
                 </button>
               ))
@@ -598,13 +608,26 @@ export default function Home() {
             <p className="text-xs leading-5 text-[#485d4b]">不生成无来源答案，只返回资料文件、页码和原文片段。</p>
           </div>
         </aside>
+        )}
 
         <section className="min-w-0 px-8 py-7 max-md:px-5" data-testid="trace-workspace">
-          <div className="mb-6 flex items-start justify-between gap-5 max-md:flex-col">
+          {focusMode && (
+            <button
+              type="button"
+              aria-label="退出专注模式"
+              onClick={() => setFocusMode(false)}
+              className="focus-ring mb-4 inline-flex items-center gap-2 rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#315f43] hover:bg-[#edf6e9]"
+            >
+              <Minimize2 size={16} strokeWidth={1.75} />
+              退出专注模式
+            </button>
+          )}
+          {!focusMode && (
+          <div className="mb-6 flex items-start justify-between gap-5 max-md:flex-col" data-testid="project-context-bar">
             <div className="min-w-0">
               <p className="mb-2 text-sm font-semibold text-[#496f45]">当前项目</p>
               <div className="flex min-w-0 items-center gap-2">
-                <h2 className="min-w-0 flex-1 break-words text-3xl font-semibold tracking-normal text-[#1f3428] max-md:text-2xl">
+                <h2 className="min-w-0 flex-1 break-words text-3xl font-semibold tracking-normal text-[#1f3428] max-md:text-2xl" data-testid="project-context-name">
                   {activeProject?.name ?? "尚未创建项目"}
                 </h2>
                 {activeProject && (
@@ -641,12 +664,20 @@ export default function Home() {
                   </div>
                 )}
               </div>
+              {activeProject && (
+                <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-[#315f43]" data-testid="project-context-meta">
+                  <span className="rounded-full border border-[#c8d8c7] bg-[#f8fbf4] px-2 py-1">{projectStatusLabel(activeProject.latest_status)}</span>
+                  <span className="rounded-full border border-[#c8d8c7] bg-[#f8fbf4] px-2 py-1">{activeProject.document_count} 份资料</span>
+                  <span className="rounded-full border border-[#c8d8c7] bg-[#f8fbf4] px-2 py-1">{activeProject.question_count} 道题目</span>
+                </div>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-md border border-[#d0dccd] bg-[#f9fbf5] px-3 py-2 text-sm text-[#425542]">
               <CheckCircle2 size={16} strokeWidth={1.75} />
               本地来源闭环
             </div>
           </div>
+          )}
 
           {error && (
             <div className="mb-5 flex items-start gap-2 rounded-md border border-[#c98972] bg-[#fff8f4] px-4 py-3 text-sm text-[#9d4d2f]">
@@ -656,6 +687,7 @@ export default function Home() {
           )}
 
           <div className="grid gap-6">
+            {!focusMode && (
             <section className="paper-panel" data-testid="material-library">
               <div className="mb-4 flex items-center justify-between gap-4 max-sm:flex-col max-sm:items-start">
                 <div>
@@ -730,8 +762,39 @@ export default function Home() {
                 />
               )}
             </section>
+            )}
 
             <section className="paper-panel">
+              <div
+                className="mb-4 flex min-h-12 items-center justify-between gap-4 rounded-md border border-[#d8ddd2] bg-[#f8fbf4] px-3 py-2 max-md:flex-col max-md:items-start"
+                data-testid="question-context-toolbar"
+              >
+                <div className="min-w-0">
+                  <p className="line-clamp-2 text-sm font-semibold leading-5 text-[#203a2b]" data-testid="question-context-text">
+                    {currentQuestionText}
+                  </p>
+                  <p className="mt-1 text-xs text-[#5e6d5d]" data-testid="question-context-status">
+                    {currentQuestionStatus}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => document.querySelector('[data-testid="document-scope-selector"]')?.scrollIntoView({ behavior: "smooth", block: "center" })}
+                    className="focus-ring rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
+                  >
+                    检索范围
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="进入专注模式"
+                    onClick={() => setFocusMode(true)}
+                    className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#fbfcf8] text-[#315f43] hover:bg-[#edf6e9]"
+                  >
+                    <Maximize2 size={16} strokeWidth={1.75} />
+                  </button>
+                </div>
+              </div>
               <div className="mb-4 flex items-center gap-2 text-[#203a2b]">
                 <Search size={18} strokeWidth={1.75} />
                 <h3 className="text-lg font-semibold">溯源请求</h3>
@@ -1666,12 +1729,22 @@ function statusLabel(value: string) {
   return labels[value] ?? value;
 }
 
+function projectStatusLabel(value: string) {
+  const labels: Record<string, string> = {
+    empty: "空项目",
+    processing: "处理中",
+    failed: "需处理",
+    ready: "可检索"
+  };
+  return labels[value] ?? value;
+}
+
 function questionStatusLabel(value: string) {
   const labels: Record<string, string> = {
-    completed: "已完成",
-    searching: "检索中",
-    no_reliable_source: "无可靠来源",
-    failed: "失败"
+    completed: "已找到来源",
+    searching: "正在检索来源",
+    no_reliable_source: "未找到可靠来源",
+    failed: "检索失败"
   };
   return labels[value] ?? value;
 }
