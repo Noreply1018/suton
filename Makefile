@@ -124,6 +124,7 @@ v020-api-test:
 	CHECK=v020-project-document-api $(MAKE) verify-api-contract
 	CHECK=v020-document-detail-fields $(MAKE) verify-api-contract
 	CHECK=v020-document-reprocess-api $(MAKE) verify-api-contract
+	CHECK=v020-delete-api $(MAKE) verify-api-contract
 	CHECK=v020-document-scope-disabled $(MAKE) verify-api-contract
 	CHECK=v020-pdf-file-api $(MAKE) verify-api-contract
 	CHECK=v020-project-name-limits $(MAKE) verify-api-contract

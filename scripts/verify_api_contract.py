@@ -643,6 +643,126 @@ def check_document_reprocess_api() -> None:
         storage_path.unlink(missing_ok=True)
 
 
+def check_delete_api() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    upload_root = Path(settings.upload_dir)
+    document_project_id: int | None = None
+    project_success_id: int | None = None
+    project_rollback_id: int | None = None
+    paths = {
+        "document": upload_root / f"v020-delete-api-document-{suffix}.pdf",
+        "project_a": upload_root / f"v020-delete-api-project-{suffix}-a.pdf",
+        "project_b": upload_root / f"v020-delete-api-project-{suffix}-b.pdf",
+        "rollback_good": upload_root / f"v020-delete-api-rollback-{suffix}.pdf",
+    }
+    missing_document_path = upload_root / f"v020-delete-api-document-missing-{suffix}.pdf"
+    missing_project_path = upload_root / f"v020-delete-api-project-missing-{suffix}.pdf"
+    try:
+        upload_root.mkdir(parents=True, exist_ok=True)
+        for path in paths.values():
+            path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+
+        document_project_id = create_project_record(f"删除资料接口-{suffix}")
+        document_id = create_document_record(
+            document_project_id,
+            filename="delete-document-api.pdf",
+            storage_path=str(paths["document"]),
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        missing_document_id = create_document_record(
+            document_project_id,
+            filename="delete-document-missing-api.pdf",
+            storage_path=str(missing_document_path),
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+
+        missing_document = client.delete("/documents/999999999")
+        require_status(missing_document, 404, "资料不存在")
+        deleted_document = client.delete(f"/documents/{document_id}")
+        require_status(deleted_document, 200)
+        require(deleted_document.json() == {"deleted": True, "document_id": document_id}, f"document delete response mismatch: {deleted_document.json()}")
+        require(not paths["document"].exists(), "document delete did not remove PDF file")
+        require_status(client.get(f"/documents/{document_id}"), 404, "资料不存在")
+        failed_document = client.delete(f"/documents/{missing_document_id}")
+        require_status(failed_document, 500, "资料文件删除失败")
+        with connect() as conn:
+            missing_document_count = conn.execute("SELECT COUNT(*) AS value FROM documents WHERE id = %s", (missing_document_id,)).fetchone()["value"]
+        require(missing_document_count == 1, "missing-file document delete did not roll back row")
+
+        project_success_id = create_project_record(f"删除项目接口-{suffix}")
+        create_document_record(
+            project_success_id,
+            filename="delete-project-a.pdf",
+            storage_path=str(paths["project_a"]),
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        create_document_record(
+            project_success_id,
+            filename="delete-project-b.pdf",
+            storage_path=str(paths["project_b"]),
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        missing_project = client.delete("/projects/999999999")
+        require_status(missing_project, 404, "项目不存在")
+        deleted_project = client.delete(f"/projects/{project_success_id}")
+        require_status(deleted_project, 200)
+        require(deleted_project.json() == {"deleted": True, "project_id": project_success_id}, f"project delete response mismatch: {deleted_project.json()}")
+        require(not paths["project_a"].exists() and not paths["project_b"].exists(), "project delete did not remove all PDF files")
+        require_status(client.get(f"/projects/{project_success_id}"), 404, "项目不存在")
+
+        project_rollback_id = create_project_record(f"删除项目回滚接口-{suffix}")
+        create_document_record(
+            project_rollback_id,
+            filename="delete-project-rollback-good.pdf",
+            storage_path=str(paths["rollback_good"]),
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        create_document_record(
+            project_rollback_id,
+            filename="delete-project-rollback-missing.pdf",
+            storage_path=str(missing_project_path),
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        failed_project = client.delete(f"/projects/{project_rollback_id}")
+        require_status(failed_project, 500, "项目文件删除失败")
+        require(paths["rollback_good"].exists(), "project delete rollback did not restore moved file")
+        with connect() as conn:
+            rollback_project_count = conn.execute("SELECT COUNT(*) AS value FROM projects WHERE id = %s", (project_rollback_id,)).fetchone()["value"]
+            rollback_document_count = conn.execute("SELECT COUNT(*) AS value FROM documents WHERE project_id = %s", (project_rollback_id,)).fetchone()["value"]
+        require(rollback_project_count == 1, "project delete failure did not roll back project row")
+        require(rollback_document_count == 2, "project delete failure did not roll back document rows")
+    finally:
+        project_ids = [project_id for project_id in [document_project_id, project_success_id, project_rollback_id] if project_id is not None]
+        delete_project_records(project_ids)
+        for path in paths.values():
+            path.unlink(missing_ok=True)
+
+
 def check_document_scope_disabled() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -1392,6 +1512,7 @@ def main() -> None:
         "v020-project-document-api": check_project_document_api,
         "v020-document-detail-fields": check_document_detail_fields,
         "v020-document-reprocess-api": check_document_reprocess_api,
+        "v020-delete-api": check_delete_api,
         "v020-document-scope-disabled": check_document_scope_disabled,
         "v020-pdf-file-api": check_pdf_file_api,
         "v020-project-name-limits": check_project_name_limits,
