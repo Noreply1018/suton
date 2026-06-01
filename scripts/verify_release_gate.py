@@ -8,6 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC_DIR = ROOT / "docs/spec/v0.1.0"
 ITEMS_DIR = SPEC_DIR / "items"
 VALIDATION_DOC = SPEC_DIR / "validation-2026-05-29.md"
+V020_SPEC_DIR = ROOT / "docs/spec/v0.2.0"
+V020_ITEMS_DIR = V020_SPEC_DIR / "items"
 
 
 def fail(message: str) -> None:
@@ -77,6 +79,101 @@ def check_item(path: Path, *, completed: bool) -> list[str]:
     return errors
 
 
+REQUIRED_ITEM_FIELDS = [
+    "- 类型：",
+    "- 状态：",
+    "- 背景：",
+    "- 当前问题：",
+    "- 目标行为：",
+    "- 非目标：",
+    "- 发布必要性：",
+    "- 用户可见影响：",
+    "- 涉及模块：",
+    "- 配置、接口或数据结构变化：",
+    "- 兼容性要求：",
+    "- 验收标准：",
+    "- 验证矩阵：",
+    "- 风险与回滚：",
+]
+
+
+def check_v020_item(path: Path) -> list[str]:
+    errors: list[str] = []
+    text = path.read_text(encoding="utf-8")
+    for field in REQUIRED_ITEM_FIELDS:
+        if field not in text:
+            errors.append(f"{path}: 缺少字段 {field}")
+    if "- 发布必要性：必须发布" not in text:
+        errors.append(f"{path}: 发布必要性必须为“必须发布”")
+    rows = table_rows(text)
+    if not rows:
+        errors.append(f"{path}: 缺少验证矩阵行")
+        return errors
+    for index, row in enumerate(rows, start=1):
+        if len(row) != 8:
+            errors.append(f"{path}: 验证矩阵第 {index} 行列数不是 8")
+            continue
+        scenario, environment, precondition, command, expected, actual, evidence, conclusion = row
+        for label, value in {
+            "场景": scenario,
+            "环境": environment,
+            "前置条件": precondition,
+            "操作命令": command,
+            "预期结果": expected,
+            "实际结果": actual,
+            "证据": evidence,
+            "结论": conclusion,
+        }.items():
+            if not value:
+                errors.append(f"{path}: 验证矩阵第 {index} 行缺少{label}")
+        if "执行 v0.2.0" in command or "命令" == command:
+            errors.append(f"{path}: 场景“{scenario}”操作命令不是可复现命令")
+        if conclusion not in {"通过", "失败", "阻塞", "移除"}:
+            errors.append(f"{path}: 场景“{scenario}”结论非法：{conclusion}")
+    return errors
+
+
+def check_v020_spec() -> list[str]:
+    errors: list[str] = []
+    required_files = [
+        V020_SPEC_DIR / "README.md",
+        V020_SPEC_DIR / "acceptance-checklist.md",
+        V020_ITEMS_DIR / "design-001-frontend-rebuild.md",
+        V020_ITEMS_DIR / "design-002-workspace-layout.md",
+        V020_ITEMS_DIR / "feature-001-project-management.md",
+        V020_ITEMS_DIR / "feature-002-document-management.md",
+        V020_ITEMS_DIR / "feature-003-processing-progress.md",
+        V020_ITEMS_DIR / "feature-004-source-reader.md",
+        V020_ITEMS_DIR / "feature-005-question-workflow.md",
+        V020_ITEMS_DIR / "data-001-v020-model-api.md",
+        V020_ITEMS_DIR / "gate-001-visual-quality.md",
+        V020_ITEMS_DIR / "gate-002-v020-validation.md",
+    ]
+    for path in required_files:
+        if not path.exists():
+            errors.append(f"missing v0.2.0 spec file: {path}")
+    if errors:
+        return errors
+
+    readme = (V020_SPEC_DIR / "README.md").read_text(encoding="utf-8")
+    required_readme_text = [
+        "Nature 论文式高级浅色自然系",
+        "旧前端实现内容必须被替换",
+        "成熟产品",
+        "不得复制任何特定产品",
+        "tests/fixtures/text-layer-material.pdf",
+        "tests/fixtures/unmatched-question.txt",
+        "前端旧设计已彻底删除",
+    ]
+    for required in required_readme_text:
+        if required not in readme:
+            errors.append(f"{V020_SPEC_DIR / 'README.md'}: 缺少关键约束 {required}")
+
+    for path in sorted(V020_ITEMS_DIR.glob("*.md")):
+        errors.extend(check_v020_item(path))
+    return errors
+
+
 def main() -> None:
     require(SPEC_DIR.exists(), f"spec directory not found: {SPEC_DIR}")
     require(VALIDATION_DOC.exists(), f"validation document not found: {VALIDATION_DOC}")
@@ -114,7 +211,13 @@ def main() -> None:
         fail("\n".join(errors))
     if incomplete_items:
         fail("v0.1.0 release blocked by incomplete spec items:\n" + "\n".join(incomplete_items))
+
+    v020_errors = check_v020_spec()
+    if v020_errors:
+        fail("\n".join(v020_errors))
+
     print("v0.1.0 release gate spec checks passed")
+    print("v0.2.0 draft spec structure checks passed")
 
 
 if __name__ == "__main__":
