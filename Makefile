@@ -11,7 +11,7 @@ export API_URL ?= http://127.0.0.1:8000
 export NEXT_PUBLIC_API_URL ?= http://127.0.0.1:8000
 export PYTHONPATH := backend
 
-.PHONY: env-info doctor reset-demo dev start docker-build docker-prod-up docker-prod-down migrate process-demo verify-db verify-api-contract verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test v020-db-test v020-api-test install
+.PHONY: env-info doctor reset-demo dev start docker-build docker-prod-up docker-prod-down migrate process-demo verify-db verify-api-contract verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e verify-visual test backend-test frontend-test v020-db-test v020-api-test install
 
 install:
 	uv sync --project backend
@@ -82,7 +82,7 @@ evidence-package-with-tests:
 	uv run --project backend python scripts/collect_evidence.py --with-tests
 
 verify-e2e:
-	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits|v020-project-rename-delete|v020-project-delete-selection|v020-document-delete|v020-document-health|v020-document-detail-fields|v020-document-scope-disabled|v020-processing-failure|v020-source-reader-open|v020-source-reader-switch|v020-source-reader-file-missing|v020-source-reader-stale-source|v020-confidence-levels)$$ ]]; then \
+	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits|v020-project-rename-delete|v020-project-delete-selection|v020-document-delete|v020-document-health|v020-document-detail-fields|v020-document-scope-disabled|v020-processing-failure|v020-source-reader-open|v020-source-reader-switch|v020-source-reader-page-nav|v020-source-reader-file-missing|v020-source-reader-stale-source|v020-confidence-levels)$$ ]]; then \
 		uv run --project backend python scripts/dev_check.py --skip-embedding; \
 	else \
 		uv run --project backend python scripts/dev_check.py; \
@@ -100,6 +100,24 @@ verify-e2e:
 	 uv run --project backend python scripts/wait_http.py "$$api_url/health" "$$web_url" && \
 	 test_args=(); if [[ -n "$$SCENARIO" ]]; then test_args=(--grep "$$SCENARIO"); fi; \
 	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test "$${test_args[@]}"; status=$$?; cleanup; exit $$status)
+
+verify-visual:
+	@if [[ "$$CHECK" != "source-page-nav" ]]; then \
+		echo "unsupported visual CHECK: $$CHECK"; exit 2; \
+	fi
+	uv run --project backend python scripts/dev_check.py --skip-embedding
+	docker compose up -d postgres redis
+	uv run --project backend python scripts/migrate.py
+	uv run --project backend python scripts/reset_demo.py
+	(api_port="$${VISUAL_API_PORT:-18100}"; web_port="$${VISUAL_WEB_PORT:-13100}"; \
+	 api_url="http://127.0.0.1:$$api_port"; web_url="http://127.0.0.1:$$web_port"; \
+	 setsid uv run --project backend rq worker suton --url "$$REDIS_URL" & worker_pid=$$!; \
+	 setsid env CORS_ALLOW_ORIGINS="$$web_url" uv run --project backend uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port "$$api_port" & api_pid=$$!; \
+	 setsid env NEXT_PUBLIC_API_URL="$$api_url" pnpm --dir frontend exec next dev --hostname 127.0.0.1 --port "$$web_port" & web_pid=$$!; \
+	 cleanup() { kill -TERM -- -$$worker_pid -$$api_pid -$$web_pid 2>/dev/null || true; wait $$worker_pid $$api_pid $$web_pid 2>/dev/null || true; }; \
+	 trap cleanup INT TERM EXIT; \
+	 uv run --project backend python scripts/wait_http.py "$$api_url/health" "$$web_url" && \
+	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test --grep "visual-source-page-nav"; status=$$?; cleanup; exit $$status)
 
 test: backend-test frontend-test v020-db-test v020-api-test
 

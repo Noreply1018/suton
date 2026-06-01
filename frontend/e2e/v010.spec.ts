@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 test.describe.configure({ mode: "serial" });
@@ -506,6 +506,71 @@ test("v020-source-reader-switch：切换来源原地替换 PDF 页和段落详�
   );
   await expect(reader.getByRole("button", { name: "下一页" })).toBeDisabled();
   await expect(reader.getByRole("button", { name: "回到命中页" })).toBeDisabled();
+});
+
+test("v020-source-reader-page-nav：来源阅读区页码导航", async ({ page }) => {
+  const seed = seedSourceReader();
+  try {
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+    await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+    const reader = page.getByTestId("source-reader");
+    await expect(reader).toBeVisible();
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+    await expect(page.getByTestId("source-reader-hit-page")).toBeVisible();
+    await expect(reader.getByRole("button", { name: "上一页" })).toBeDisabled();
+    await expect(reader.getByRole("button", { name: "下一页" })).toBeEnabled();
+    await expect(reader.getByRole("button", { name: "回到命中页" })).toBeDisabled();
+
+    await reader.getByRole("button", { name: "下一页" }).click();
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 2 / 2 页 · 排序 1 · 强相关");
+    await expect(page.getByTestId("source-reader-pdf")).toHaveAttribute(
+      "src",
+      new RegExp(`/documents/${seed.document_id}/file#page=2$`)
+    );
+    await expect(page.getByTestId("source-reader-hit-page")).toHaveCount(0);
+    await expect(reader.getByRole("button", { name: "上一页" })).toBeEnabled();
+    await expect(reader.getByRole("button", { name: "下一页" })).toBeDisabled();
+    await expect(reader.getByRole("button", { name: "回到命中页" })).toBeEnabled();
+
+    await reader.getByRole("button", { name: "回到命中页" }).click();
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+    await expect(page.getByTestId("source-reader-pdf")).toHaveAttribute(
+      "src",
+      new RegExp(`/documents/${seed.document_id}/file#page=1$`)
+    );
+    await expect(page.getByTestId("source-reader-hit-page")).toBeVisible();
+    await expect(reader.getByRole("button", { name: "回到命中页" })).toBeDisabled();
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("visual-source-page-nav：生成来源页码导航截图", async ({ page }) => {
+  const seed = seedSourceReader();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const screenshotPath = resolve(evidenceDir, "1440x900-source-page-nav.png");
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+    const reader = page.getByTestId("source-reader");
+    await expect(reader).toBeVisible();
+    await reader.getByRole("button", { name: "下一页" }).click();
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 2 / 2 页 · 排序 1 · 强相关");
+    await expect(reader.getByRole("button", { name: "回到命中页" })).toBeEnabled();
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(hasHorizontalOverflow).toBe(false);
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
 });
 
 test("v020-source-reader-file-missing：PDF 文件缺失展示固定错误状态", async ({ page }) => {

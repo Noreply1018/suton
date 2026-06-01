@@ -1239,7 +1239,10 @@ function SourceReader({
             </p>
           </div>
           {atHitPage && (
-            <span className="shrink-0 rounded-full border border-[#b9d0b9] bg-[#edf6e9] px-2 py-1 text-xs font-semibold text-[#315f43]">
+            <span
+              data-testid="source-reader-hit-page"
+              className="shrink-0 rounded-full border border-[#b9d0b9] bg-[#edf6e9] px-2 py-1 text-xs font-semibold text-[#315f43]"
+            >
               命中页
             </span>
           )}
