@@ -79,6 +79,16 @@ type NoSourceActionsSeed = {
   unavailable_document_id: number;
 };
 
+type QuestionScopeErrorsSeed = {
+  project_id: number;
+  project_name: string;
+  other_project_id: number;
+  searchable_document_id: number;
+  processing_document_id: number;
+  unsearchable_document_id: number;
+  other_document_id: number;
+};
+
 type LongListsSeed = {
   project_id: number;
   project_name: string;
@@ -201,6 +211,15 @@ function seedNoSourceActions() {
   return JSON.parse(output) as NoSourceActionsSeed;
 }
 
+function seedQuestionScopeErrors() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_question_scope_errors.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as QuestionScopeErrorsSeed;
+}
+
 function seedLongLists() {
   const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_long_lists.py"], {
     cwd: resolve("."),
@@ -285,6 +304,30 @@ async function installIndeterminateUploadProbe(page: Page) {
       return originalSend.call(xhr, body);
     };
   });
+}
+
+async function submitQuestionWithScopeOverride(page: Page, projectId: number, documentIds: number[]) {
+  await page.route(
+    `${apiUrl}/projects/${projectId}/questions`,
+    async (route) => {
+      const request = route.request();
+      if (request.method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      const body = JSON.parse(request.postData() ?? "{}") as { text?: string; document_ids?: number[] | null };
+      await route.continue({
+        postData: JSON.stringify({ ...body, document_ids: documentIds }),
+        headers: { ...request.headers(), "content-type": "application/json" }
+      });
+    },
+    { times: 1 }
+  );
+  const responsePromise = page.waitForResponse(
+    (response) => response.url() === `${apiUrl}/projects/${projectId}/questions` && response.request().method() === "POST"
+  );
+  await page.getByRole("button", { name: "查找资料依据" }).click();
+  return responsePromise;
 }
 
 test("project-validation：空项目名被拦截", async ({ page }) => {
@@ -1243,6 +1286,41 @@ test("v020-question-history-long-text：长题干历史列表不撑开页面", a
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("v020-question-scope-errors：检索范围错误展示固定文案且不产生伪结果", async ({ page }) => {
+  const seed = seedQuestionScopeErrors();
+  try {
+    await page.goto("/");
+    await page.getByRole("button", { name: new RegExp(seed.project_name) }).click();
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+    await page.getByRole("button", { name: "指定资料" }).click();
+    await page.getByTestId(`document-scope-option-${seed.searchable_document_id}`).locator("input").check();
+    await expect(page.getByTestId(`document-scope-option-${seed.processing_document_id}`)).toContainText("资料尚未完成处理");
+    await expect(page.getByTestId(`document-scope-option-${seed.unsearchable_document_id}`)).toContainText("资料不可检索");
+    await page.getByTestId("question-text").fill("验证检索范围错误不会生成伪结果");
+
+    for (const scenario of [
+      { ids: [], detail: "检索范围不能为空", status: 400 },
+      { ids: [seed.other_document_id], detail: "检索范围包含不可用资料", status: 400 },
+      { ids: [seed.processing_document_id], detail: "检索范围包含不可用资料", status: 400 },
+      { ids: [seed.unsearchable_document_id], detail: "检索范围包含不可用资料", status: 400 }
+    ]) {
+      const response = await submitQuestionWithScopeOverride(page, seed.project_id, scenario.ids);
+      expect(response.status()).toBe(scenario.status);
+      expect((await response.json()).detail).toBe(scenario.detail);
+      await expect(page.getByText(scenario.detail)).toBeVisible();
+      await expect(page.getByTestId("source-card")).toHaveCount(0);
+      await expect(page.getByTestId("question-history-item")).toHaveCount(0);
+      await expect(page.getByText("系统不会生成无来源答案。")).toHaveCount(0);
+    }
+  } finally {
+    for (const projectId of [seed.project_id, seed.other_project_id]) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    }
   }
 });
 
