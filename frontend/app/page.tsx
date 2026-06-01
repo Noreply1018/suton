@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   ShieldCheck,
   Trash2,
@@ -24,6 +25,8 @@ import {
 } from "lucide-react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+
+const processingStages = ["uploaded", "extracting_text", "chunking", "embedding", "indexing", "completed"] as const;
 
 type Project = {
   id: number;
@@ -351,6 +354,22 @@ export default function Home() {
     }
   }
 
+  async function reprocessDocument(document: DocumentRow) {
+    if (!activeProject) return;
+    setError("");
+    setBusy(true);
+    const projectId = activeProject.id;
+    try {
+      const updated = await request<DocumentRow>(`/documents/${document.id}/reprocess`, { method: "POST" });
+      await refresh(projectId);
+      setSelectedDocument(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "重新处理资料失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function uploadFile(event: ChangeEvent<HTMLInputElement>) {
     if (!activeProject) {
       setError("请先创建项目");
@@ -612,11 +631,19 @@ export default function Home() {
                       selected={selectedDocument?.id === document.id}
                       onSelect={setSelectedDocument}
                       onDelete={openDeleteDocumentDialog}
+                      onReprocess={reprocessDocument}
                     />
                   ))
                 )}
               </div>
-              {selectedDocument && <DocumentDetail document={selectedDocument} />}
+              {selectedDocument && (
+                <DocumentDetail
+                  document={selectedDocument}
+                  busy={busy}
+                  onDelete={openDeleteDocumentDialog}
+                  onReprocess={reprocessDocument}
+                />
+              )}
             </section>
 
             <section className="paper-panel">
@@ -1035,30 +1062,64 @@ function DocumentRowView({
   document,
   selected,
   onSelect,
-  onDelete
+  onDelete,
+  onReprocess
 }: {
   document: DocumentRow;
   selected: boolean;
   onSelect: (document: DocumentRow) => void;
   onDelete: (document: DocumentRow) => void;
+  onReprocess: (document: DocumentRow) => void;
 }) {
+  const failed = isFailedDocument(document);
   return (
-    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4">
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4" data-testid={`document-row-${document.id}`}>
       <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-md bg-[#e5efe0] text-[#315f43]">
         <FileText size={18} />
       </div>
-      <button
-        type="button"
-        onClick={() => onSelect(document)}
-        className={`focus-ring min-w-0 rounded-md px-2 py-1 text-left ${selected ? "bg-[#edf6e9] ring-1 ring-[#bfd3bf]" : "hover:bg-[#f8fbf4]"}`}
-      >
-        <p className="truncate text-sm font-semibold text-[#26382d]">{document.filename}</p>
-        <p className="mt-1 text-xs text-[#516050]">
-          {displayPages(document.page_count)} · {document.text_quality_label} · {document.chunk_count} 个片段 ·{" "}
-          {document.searchable ? "可检索" : "不可检索"} · 最近处理 {formatDateTime(document.processed_at)}
-          {document.failure_reason ? ` · ${document.failure_reason}` : ""}
-        </p>
-      </button>
+      <div className="min-w-0">
+        <button
+          type="button"
+          onClick={() => onSelect(document)}
+          className={`focus-ring w-full min-w-0 rounded-md px-2 py-1 text-left ${selected ? "bg-[#edf6e9] ring-1 ring-[#bfd3bf]" : "hover:bg-[#f8fbf4]"}`}
+        >
+          <p className="truncate text-sm font-semibold text-[#26382d]">{document.filename}</p>
+          <p className="mt-1 text-xs text-[#516050]">
+            {displayPages(document.page_count)} · {document.text_quality_label} · {document.chunk_count} 个片段 ·{" "}
+            {document.searchable ? "可检索" : "不可检索"} · 最近处理 {formatDateTime(document.processed_at)}
+            {document.failure_reason ? ` · ${document.failure_reason}` : ""}
+          </p>
+        </button>
+        <ProcessingTrack document={document} />
+        {failed && (
+          <div className="mt-3 flex flex-wrap gap-2" data-testid={`document-failure-actions-${document.id}`}>
+            <button
+              type="button"
+              onClick={() => onReprocess(document)}
+              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
+            >
+              <RefreshCwIcon />
+              重新处理
+            </button>
+            <button
+              type="button"
+              onClick={() => onDelete(document)}
+              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec]"
+            >
+              <Trash2 size={14} />
+              删除资料
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelect(document)}
+              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#d5c9aa] bg-[#fffaf0] px-2 py-1 text-xs font-semibold text-[#6f5633] hover:bg-[#fff5db]"
+            >
+              <AlertCircle size={14} />
+              查看失败原因
+            </button>
+          </div>
+        )}
+      </div>
       <div className="flex shrink-0 items-center gap-2">
         <Status value={document.status} />
         <button
@@ -1074,13 +1135,49 @@ function DocumentRowView({
   );
 }
 
-function DocumentDetail({ document }: { document: DocumentRow }) {
+function DocumentDetail({
+  document,
+  busy,
+  onDelete,
+  onReprocess
+}: {
+  document: DocumentRow;
+  busy: boolean;
+  onDelete: (document: DocumentRow) => void;
+  onReprocess: (document: DocumentRow) => void;
+}) {
+  const failed = isFailedDocument(document);
   return (
     <section className="mt-5 border-t border-[#dce4d7] pt-5" data-testid="document-detail">
-      <div className="mb-4 flex items-center gap-2 text-[#203a2b]">
-        <FileText size={18} />
-        <h4 className="text-base font-semibold">资料详情</h4>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2 text-[#203a2b]">
+          <FileText size={18} />
+          <h4 className="text-base font-semibold">资料详情</h4>
+        </div>
+        {failed && (
+          <div className="flex shrink-0 flex-wrap justify-end gap-2" data-testid="document-detail-failure-actions">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onReprocess(document)}
+              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9] disabled:opacity-55"
+            >
+              <RefreshCwIcon />
+              重新处理
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onDelete(document)}
+              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec] disabled:opacity-55"
+            >
+              <Trash2 size={14} />
+              删除资料
+            </button>
+          </div>
+        )}
       </div>
+      <ProcessingTrack document={document} />
       <dl className="grid grid-cols-2 gap-x-5 gap-y-3 text-sm max-md:grid-cols-1">
         <DetailItem testId="filename" label="文件名" value={document.filename} />
         <DetailItem testId="content-type" label="内容类型" value={document.content_type} />
@@ -1217,6 +1314,55 @@ function DetailItem({ testId, label, value }: { testId: string; label: string; v
   );
 }
 
+function ProcessingTrack({ document }: { document: DocumentRow }) {
+  return (
+    <div className="mt-3 grid gap-2" data-testid={`processing-track-${document.id}`}>
+      <div className="grid grid-cols-6 gap-2">
+        {processingStages.map((stage) => {
+          const state = processingStageState(document, stage);
+          return (
+            <div
+              key={stage}
+              data-testid={`processing-stage-node-${stage}`}
+              className={`min-w-0 rounded-md border px-2 py-2 text-xs ${
+                state === "failed"
+                  ? "border-[#d5a38f] bg-[#fff8f4] text-[#9d4d2f]"
+                  : state === "active"
+                    ? "border-[#b8cdb8] bg-[#edf6e9] text-[#315f43]"
+                    : state === "done"
+                      ? "border-[#c5d6c2] bg-[#f8fbf4] text-[#315f43]"
+                      : "border-[#dce4d7] bg-[#fbfcf8] text-[#7a8578]"
+              }`}
+            >
+              <div className="mb-1 flex items-center justify-center">
+                {state === "failed" ? (
+                  <AlertTriangle size={14} />
+                ) : state === "done" ? (
+                  <CheckCircle2 size={14} />
+                ) : (
+                  <span className={`h-2 w-2 rounded-full border ${state === "active" ? "animate-pulse bg-[#315f43]" : "border-current"}`} />
+                )}
+              </div>
+              <p className="truncate text-center font-semibold">{processingStageLabel(stage)}</p>
+              {state === "failed" && <p className="mt-1 truncate text-center">失败</p>}
+            </div>
+          );
+        })}
+      </div>
+      {isFailedDocument(document) && document.failure_reason && (
+        <p className="flex items-start gap-2 text-xs leading-5 text-[#9d4d2f]" data-testid={`document-failure-reason-${document.id}`}>
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>{document.failure_reason}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RefreshCwIcon() {
+  return <RefreshCw size={14} />;
+}
+
 function FirstEmptyProject() {
   return (
     <div data-testid="v020-first-empty-project" className="py-8">
@@ -1271,15 +1417,34 @@ function statusLabel(value: string) {
 
 function processingStageLabel(value: string) {
   const labels: Record<string, string> = {
-    uploaded: "已上传",
-    extracting_text: "提取文本",
-    chunking: "切分片段",
-    embedding: "生成向量",
-    indexing: "写入索引",
+    uploaded: "上传完成",
+    extracting_text: "提取文字",
+    chunking: "切块",
+    embedding: "生成 embedding",
+    indexing: "建立索引",
     completed: "完成",
     failed: "失败"
   };
   return labels[value] ?? value;
+}
+
+function processingStageState(document: DocumentRow, stage: (typeof processingStages)[number]) {
+  const failedStage = document.failed_stage ?? "uploaded";
+  const currentStage = document.processing_stage === "failed" ? failedStage : document.processing_stage;
+  const stageIndex = processingStages.indexOf(stage);
+  const currentIndex = processingStages.indexOf(currentStage as (typeof processingStages)[number]);
+  if (isFailedDocument(document)) {
+    if (stage === failedStage) return "failed";
+    return stageIndex < currentIndex ? "done" : "pending";
+  }
+  if (document.processing_stage === "completed") return "done";
+  if (stageIndex < currentIndex) return "done";
+  if (stage === currentStage) return "active";
+  return "pending";
+}
+
+function isFailedDocument(document: DocumentRow) {
+  return document.status === "failed" || document.status === "unsupported" || document.processing_stage === "failed";
 }
 
 function displayNumber(value: number | null) {
