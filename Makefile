@@ -102,7 +102,7 @@ verify-e2e:
 	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test "$${test_args[@]}"; status=$$?; cleanup; exit $$status)
 
 verify-visual:
-	@if [[ "$$CHECK" != "source-page-nav" && "$$CHECK" != "first-empty-project" ]]; then \
+	@if [[ "$$CHECK" != "source-page-nav" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" ]]; then \
 		echo "unsupported visual CHECK: $$CHECK"; exit 2; \
 	fi
 	uv run --project backend python scripts/dev_check.py --skip-embedding
@@ -117,7 +117,7 @@ verify-visual:
 	 cleanup() { kill -TERM -- -$$worker_pid -$$api_pid -$$web_pid 2>/dev/null || true; wait $$worker_pid $$api_pid $$web_pid 2>/dev/null || true; }; \
 	 trap cleanup INT TERM EXIT; \
 	 uv run --project backend python scripts/wait_http.py "$$api_url/health" "$$web_url" && \
-	 if [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; else visual_grep="visual-first-empty-project"; fi; \
+	 if [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; elif [[ "$$CHECK" == "first-empty-project" ]]; then visual_grep="visual-first-empty-project"; else visual_grep="visual-legacy-copy-removed"; fi; \
 	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test --grep "$$visual_grep"; status=$$?; cleanup; exit $$status)
 
 test: backend-test frontend-test v020-db-test v020-api-test

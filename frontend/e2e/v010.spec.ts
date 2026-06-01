@@ -206,6 +206,31 @@ test("visual-first-empty-project：生成首次空工作台桌面和移动截图
   }
 });
 
+test("visual-legacy-copy-removed：旧演示文案不进入运行源码和真实页面", async ({ page }) => {
+  const bannedCopies = ["v0.1.0", "演示项目", "默认项目", "Demo", "placeholder project", "高等数学（上）期末复习"];
+  const appSourceFiles = ["frontend/app/layout.tsx", "frontend/app/page.tsx", "frontend/app/globals.css"];
+
+  for (const filePath of appSourceFiles) {
+    const content = readFileSync(resolve(filePath), "utf-8");
+    for (const copy of bannedCopies) {
+      expect(content, `${filePath} should not contain ${copy}`).not.toContain(copy);
+    }
+  }
+
+  const projectsResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/projects") && response.request().method() === "GET"
+  );
+  await page.goto("/");
+  expect((await projectsResponse).status()).toBe(200);
+  await expect(page).toHaveTitle("Suton");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+
+  const visibleText = await page.locator("body").innerText();
+  for (const copy of bannedCopies) {
+    expect(visibleText).not.toContain(copy);
+  }
+});
+
 test("v020-project-create：新建项目不使用演示默认名", async ({ page }) => {
   await page.goto("/");
   const name = `线性代数期末 ${Date.now()}`;
