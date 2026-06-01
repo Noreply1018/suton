@@ -914,6 +914,118 @@ test("visual-current-context：生成当前上下文字段截图", async ({ page
   }
 });
 
+test("v020-focus-mode：桌面专注模式只保留当前题目来源结果和 PDF 阅读", async ({ page }) => {
+  const seed = seedSourceReader();
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+    await expect(page.getByTestId("source-reader")).toBeVisible();
+
+    await page.getByRole("button", { name: "进入专注模式" }).click();
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-focus-mode", "true");
+    await expect(page.getByRole("button", { name: "退出专注模式" })).toBeVisible();
+    await expect(page.getByTestId("sidebar-nav")).toBeHidden();
+    await expect(page.getByTestId("material-library")).toBeHidden();
+    await expect(page.getByTestId("project-context-bar")).toBeHidden();
+    await expect(page.getByTestId("question-text")).toBeHidden();
+    await expect(page.getByTestId("question-history")).toHaveCount(0);
+    await expect(page.getByTestId("question-context-toolbar")).toContainText("source reader question");
+    await expect(page.getByTestId("source-card").first()).toBeVisible();
+    await expect(page.getByTestId("source-card").first()).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-reader")).toBeVisible();
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+
+    await page.getByRole("button", { name: "退出专注模式" }).click();
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-focus-mode", "false");
+    await expect(page.getByTestId("sidebar-nav")).toBeVisible();
+    await expect(page.getByTestId("material-library")).toBeVisible();
+    await expect(page.getByTestId("source-card").first()).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("v020-focus-mode-restore：退出专注模式后恢复范围来源页码和资料滚动", async ({ page }) => {
+  const seed = seedLongLists();
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await expect(page.getByTestId("document-list").locator("[data-testid^='document-row-']")).toHaveCount(20);
+    await expect(page.getByTestId("source-card")).toHaveCount(20);
+
+    await page.getByTestId("document-scope-selector").getByRole("button", { name: "指定资料" }).click();
+    await page.getByTestId(`document-scope-option-${seed.document_ids[0]}`).getByRole("checkbox").check();
+    await expect(page.getByTestId("document-scope-selector").getByRole("button", { name: "指定资料" })).toHaveAttribute("aria-pressed", "true");
+
+    const documentScrollTop = await page.getByTestId("document-list").evaluate((element) => {
+      element.scrollTop = 180;
+      return element.scrollTop;
+    });
+    expect(documentScrollTop).toBeGreaterThan(0);
+
+    const firstSource = page.getByTestId("source-card").first();
+    await firstSource.getByRole("button", { name: /long-list-material-01\.pdf/ }).click();
+    await expect(firstSource).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 1 页 · 排序 1 · 强相关");
+
+    await page.getByRole("button", { name: "进入专注模式" }).click();
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-focus-mode", "true");
+    await expect(page.getByTestId("material-library")).toBeHidden();
+    await expect(page.getByTestId("question-context-toolbar")).toContainText("长列表历史题目 01");
+    await expect(page.getByTestId("source-card").first()).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 1 页 · 排序 1 · 强相关");
+
+    await page.getByRole("button", { name: "退出专注模式" }).click();
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-focus-mode", "false");
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await expect(page.getByTestId("question-context-toolbar")).toContainText("长列表历史题目 01");
+    await expect(page.getByTestId("source-card").first()).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 1 页 · 排序 1 · 强相关");
+    await expect(page.getByTestId("document-scope-selector").getByRole("button", { name: "指定资料" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId(`document-scope-option-${seed.document_ids[0]}`).getByRole("checkbox")).toBeChecked();
+    const restoredScrollTop = await page.getByTestId("document-list").evaluate((element) => element.scrollTop);
+    expect(restoredScrollTop).toBe(documentScrollTop);
+  } finally {
+    for (const projectId of seed.project_ids) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    }
+  }
+});
+
+test("visual-focus-mode：生成桌面专注模式截图", async ({ page }) => {
+  const seed = seedSourceReader();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const screenshotPath = resolve(evidenceDir, "1440x900-focus-mode.png");
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+    await page.getByRole("button", { name: "进入专注模式" }).click();
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-focus-mode", "true");
+    await expect(page.getByRole("button", { name: "退出专注模式" })).toBeVisible();
+    await expect(page.getByTestId("sidebar-nav")).toBeHidden();
+    await expect(page.getByTestId("material-library")).toBeHidden();
+    await expect(page.getByTestId("question-context-toolbar")).toContainText("source reader question");
+    await expect(page.getByTestId("source-card").first()).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(hasHorizontalOverflow).toBe(false);
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
 test("visual-source-reader-mobile：生成移动端来源全屏详情截图", async ({ page }) => {
   const seed = seedSourceReader();
   const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
