@@ -29,16 +29,16 @@
   - 用户可以在不同来源结果之间切换。
   - PDF 阅读视图展示极简页码导航，当前命中页必须突出。
   - 用户可以前后翻页，并可以一键回到命中页。
-  - PDF 加载失败时展示错误状态。
+  - PDF 加载失败时展示 `资料文件不存在` 错误状态。
   - 不要求 bbox 高亮，但目标页和命中段落必须明确。
-  - 移动端全屏详情层可以返回当前题目，返回后题目和已选来源不丢失。
+  - 移动端全屏详情层必须提供返回当前题目的入口，返回后题目和已选来源不丢失。
 - 验证矩阵：
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
 | 打开来源详情 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、真实 PostgreSQL、Linux、Playwright 浏览器 | 已处理 `tests/fixtures/text-layer-material.pdf` 并检索 `tests/fixtures/question.txt` 得到来源结果 | 执行 `make verify-e2e SCENARIO=v020-source-reader-open` | PDF 跳转目标页，详情展示命中段落、上下文、相似度分数、排序位置和确定性命中原因 | 未验证 | 待补充 | 阻塞 |
 | 切换来源 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 至少存在两条来源结果 | 执行 `make verify-e2e SCENARIO=v020-source-reader-switch` | PDF 页和段落详情随选择更新 | 未验证 | 待补充 | 阻塞 |
-| PDF 失败状态 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、Linux、Playwright 浏览器 | 已通过测试场景构造文件缺失或访问失败状态 | 执行 `make verify-e2e SCENARIO=v020-source-reader-file-missing` | 页面展示可理解错误，不伪造内容 | 未验证 | 待补充 | 阻塞 |
+| PDF 失败状态 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、Linux、Playwright 浏览器 | 已通过测试场景构造文件缺失状态 | 执行 `make verify-e2e SCENARIO=v020-source-reader-file-missing` | 页面展示 `资料文件不存在` 错误状态，不伪造内容 | 未验证 | 待补充 | 阻塞 |
 | 页码导航 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、真实 PostgreSQL、Linux、Playwright 浏览器 | 已处理 `tests/fixtures/text-layer-material.pdf` 并打开来源详情 | 执行 `make verify-e2e SCENARIO=v020-source-reader-page-nav`；执行 `make verify-visual CHECK=source-page-nav` | 当前命中页突出，上一页、下一页和回到命中页可用 | 未验证 | 待补充 | 阻塞 |
 | 移动端来源详情 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、真实 PostgreSQL、Linux、Playwright 浏览器、390x844 viewport | 已处理 `tests/fixtures/text-layer-material.pdf` 并检索 `tests/fixtures/question.txt` 得到来源结果 | 执行 `make verify-e2e SCENARIO=v020-source-reader-mobile`；执行 `make verify-visual CHECK=source-reader-mobile` | 点击来源后打开全屏详情层；返回后当前题目和已选来源不丢失 | 未验证 | 待补充 | 阻塞 |
 | 来源失效 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、本地文件系统、Linux、Playwright 浏览器 | 已生成来源结果后删除对应资料或重处理清除旧 chunk | 执行 `make verify-e2e SCENARIO=v020-source-reader-stale-source`；执行 `make verify-api-contract CHECK=v020-stale-source` | 来源详情返回 HTTP 404；前端展示失效状态，不展示缓存片段伪来源 | 未验证 | 待补充 | 阻塞 |

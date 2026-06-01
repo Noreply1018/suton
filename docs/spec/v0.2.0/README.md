@@ -160,3 +160,4 @@ v0.2.0 发布前必须满足：
 | 2026-06-01 | 补齐数据/API 响应形状：固定 `document_pages`、项目对象、资料对象、`latest_status`、`text_quality_label`、项目 `updated_at` 更新语义和项目/资料响应字段验证矩阵。 | v0.2.0 spec 逐项建设 | `items/data-001-v020-model-api.md` |
 | 2026-06-01 | 细化上传与处理进度：固定纸页入库组件形态、非百分比流动线、处理轨道节点视觉、失败节点位置和失败原因展示来源。 | v0.2.0 spec 逐项建设 | `items/feature-003-processing-progress.md` |
 | 2026-06-01 | 细化项目迁移命名：统一空名替换、重名项目迁移后缀、80 字符截断、Unicode 长度口径和迁移验证矩阵。 | v0.2.0 spec 逐项建设 | `items/feature-001-project-management.md`、`items/data-001-v020-model-api.md` |
+| 2026-06-01 | 扫尾主观验收口径：将处理进度、题目失败、来源失败和资料健康信息改为固定图标、固定组件和后端错误文案。 | v0.2.0 spec 逐项建设 | `acceptance-checklist.md`、`items/feature-002-document-management.md`、`items/feature-004-source-reader.md`、`items/feature-005-question-workflow.md` |

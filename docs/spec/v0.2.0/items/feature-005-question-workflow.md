@@ -32,6 +32,7 @@
   - `GET /questions/{question_id}` 必须返回同一题目详情对象；题目不存在返回 HTTP 404，`detail` 固定为 `题目不存在`。
   - 题目历史展示题目文本、最近检索时间、状态、结果数量和最高置信层级；当 `status = failed` 时展示 `failure_reason`；不在历史列表中展开长片段。
   - 前端不得显示 AI 生成答案、推测答案或与来源无关的讲解。
+  - 检索请求未完成时，结果区固定展示 `LoaderCircle` 图标和文案 `正在检索来源`，题目提交按钮和重新检索按钮置为 `disabled`；请求完成后立即移除该 loading 状态。
 - 无可靠来源交互契约：
   - 无可靠来源状态标题固定为 `未找到可靠来源`，正文固定为 `当前资料中没有达到可信阈值的来源片段。`。
   - 三个行动入口必须固定为 `扩大资料范围`、`检查资料索引`、`修改题目表述`。
@@ -39,9 +40,9 @@
   - 无可靠来源状态不得创建虚拟来源、不得展示 AI 猜测、不得把 score < 0.40 的候选降级展示。
 - 验收标准：
   - 用户可以输入新题目并检索。
-  - 检索时展示明确 loading 状态。
-  - 检索失败展示可理解错误。
-  - 结果列表按 `强相关`、`可参考`、`低置信` 展示来源置信层级，视觉上使用轻量层级，不使用花哨标签。
+  - 检索时结果区展示 `LoaderCircle` 和固定文案 `正在检索来源`，题目提交按钮和重新检索按钮置为 `disabled`。
+  - 检索失败展示后端 `failure_reason` 原文。
+  - 结果列表按 `强相关`、`可参考`、`低置信` 展示来源置信层级，视觉上使用 `StatusPill`，不使用亮色实心标签。
   - 没有可靠来源时展示空状态，不展示猜测答案。
   - 无可靠来源空状态固定展示三个行动入口：扩大资料范围、检查资料索引、修改题目表述。
   - 题目历史可见，且不撑长页面。
@@ -53,7 +54,7 @@
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
-| 新题检索 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL/pgvector、DashScope `DASHSCOPE_API_KEY`、Linux、Playwright 浏览器 | 已上传并处理 `tests/fixtures/text-layer-material.pdf` | 执行 `make verify-e2e SCENARIO=v020-question-search QUESTION=tests/fixtures/question.txt` | 返回带来源结果、置信层级和清晰 loading 状态 | 未验证 | 待补充 | 阻塞 |
+| 新题检索 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL/pgvector、DashScope `DASHSCOPE_API_KEY`、Linux、Playwright 浏览器 | 已上传并处理 `tests/fixtures/text-layer-material.pdf` | 执行 `make verify-e2e SCENARIO=v020-question-search QUESTION=tests/fixtures/question.txt` | 请求未完成时展示 `LoaderCircle` 和 `正在检索来源`，按钮禁用；完成后返回带来源结果和置信层级 | 未验证 | 待补充 | 阻塞 |
 | 无可靠来源 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL/pgvector、DashScope `DASHSCOPE_API_KEY`、Linux、Playwright 浏览器 | 已准备 `tests/fixtures/unmatched-question.txt` | 执行 `make verify-e2e SCENARIO=v020-question-no-source QUESTION=tests/fixtures/unmatched-question.txt` | 页面展示无可靠来源状态和三个行动入口，不展示猜测答案 | 未验证 | 待补充 | 阻塞 |
 | 历史与重新检索 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 已存在多道题目记录 | 执行 `make verify-e2e SCENARIO=v020-question-history-research` | 历史题目展示最近一次检索结果；重新检索后替换该题当前可见结果 | 未验证 | 待补充 | 阻塞 |
 | 置信层级 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL/pgvector、Linux、Playwright 浏览器 | 验证脚本在真实 PostgreSQL/pgvector 中创建 1 个测试项目、1 份测试资料、3 个固定 1024 维向量 chunk 和 1 个固定查询向量，三条候选 score 分别落入 `strong`、`reference`、`low` 区间；该测试不调用 embedding provider | 执行 `make verify-e2e SCENARIO=v020-confidence-levels`；执行 `make verify-db CHECK=v020-confidence-levels` | 来源结果按固定向量 score 生成 `strong`、`reference`、`low`，前端展示强相关、可参考、低置信 | 未验证 | 待补充 | 阻塞 |
