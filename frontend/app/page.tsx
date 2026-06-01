@@ -525,7 +525,7 @@ export default function Home() {
             <div className="min-w-0">
               <p className="mb-2 text-sm font-semibold text-[#496f45]">当前项目</p>
               <div className="flex min-w-0 items-center gap-2">
-                <h2 className="break-words text-3xl font-semibold tracking-normal text-[#1f3428]">
+                <h2 className="min-w-0 flex-1 break-words text-3xl font-semibold tracking-normal text-[#1f3428] max-md:text-2xl">
                   {activeProject?.name ?? "尚未创建项目"}
                 </h2>
                 {activeProject && (

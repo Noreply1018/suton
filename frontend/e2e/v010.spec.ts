@@ -631,6 +631,48 @@ test("visual-source-page-nav：生成来源页码导航截图", async ({ page })
   }
 });
 
+test("visual-mobile-workspace：生成窄屏工作台截图并检查无横向溢出", async ({ page }) => {
+  const seed = seedSourceReader();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const screenshotPath = resolve(evidenceDir, "390x844-mobile-workspace.png");
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await expect(page.getByTestId("sidebar-nav")).toBeVisible();
+    await expect(page.getByTestId("trace-workspace")).toBeVisible();
+    await expect(page.getByTestId("evidence-preview")).toBeVisible();
+    await expect(page.getByTestId("material-library")).toBeVisible();
+    await expect(page.getByTestId("source-card").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "新建项目" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "查找资料依据" })).toBeVisible();
+    await expect(page.getByTestId("source-card").first().getByRole("link", { name: "PDF" })).toBeVisible();
+
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(hasHorizontalOverflow).toBe(false);
+
+    const overflowingButtons = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("button, [role='button']"))
+        .filter((element) => {
+          const style = window.getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+        })
+        .filter((element) => element.scrollWidth > element.clientWidth + 1)
+        .map((element) => element.textContent?.trim() ?? element.getAttribute("aria-label") ?? "")
+    );
+    expect(overflowingButtons).toEqual([]);
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
 test("v020-source-reader-file-missing：PDF 文件缺失展示固定错误状态", async ({ page }) => {
   const seed = seedSourceFileMissing();
   await page.goto(`/?questionId=${seed.question_id}`);
