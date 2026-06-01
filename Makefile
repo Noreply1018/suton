@@ -104,6 +104,10 @@ verify-e2e:
 verify-visual:
 ifeq ($(CHECK),design-tokens)
 	uv run --project backend python scripts/verify_design_tokens.py
+else ifeq ($(CHECK),visual-evidence-manifest)
+	uv run --project backend python scripts/verify_visual_gate.py
+else ifeq ($(CHECK),aesthetic-audit-record)
+	uv run --project backend python scripts/verify_visual_gate.py
 else
 	@if [[ "$$CHECK" != "source-page-nav" && "$$CHECK" != "current-context" && "$$CHECK" != "focus-mode" && "$$CHECK" != "workspace-breakpoints" && "$$CHECK" != "source-reader-mobile" && "$$CHECK" != "upload-indeterminate-progress" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "legacy-frontend-removed" && "$$CHECK" != "mobile-workspace" && "$$CHECK" != "question-history-long-text" && "$$CHECK" != "no-source-actions" && "$$CHECK" != "long-lists" ]]; then \
 		echo "unsupported visual CHECK: $$CHECK"; exit 2; \
