@@ -352,7 +352,6 @@ def get_question(question_id: int) -> dict:
               qm.source_text,
               qm.context_before,
               qm.context_after,
-              d.filename,
               '/documents/' || d.id || '/file#page=' || c.page_no AS pdf_url
             FROM question_matches qm
             JOIN chunks c ON c.id = qm.chunk_id
@@ -367,7 +366,7 @@ def get_question(question_id: int) -> dict:
             """,
             (question_id,),
         ).fetchall()
-        return {"question": question, "matches": [match_response(row) for row in matches]}
+        return question_detail_response(question, matches)
 
 
 @app.get("/projects/{project_id}/questions")
@@ -512,6 +511,12 @@ def document_response(row: dict) -> dict:
 def match_response(row: dict) -> dict:
     result = dict(row)
     result["confidence_label"] = CONFIDENCE_LABELS[result["confidence_level"]]
+    return result
+
+
+def question_detail_response(question: dict, matches: list[dict]) -> dict:
+    result = dict(question)
+    result["matches"] = [match_response(row) for row in matches]
     return result
 
 

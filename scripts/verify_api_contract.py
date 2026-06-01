@@ -55,6 +55,35 @@ QUESTION_HISTORY_FIELDS = {
     "top_confidence_level",
     "top_confidence_label",
 }
+QUESTION_DETAIL_FIELDS = {
+    "id",
+    "project_id",
+    "text",
+    "status",
+    "failure_code",
+    "failure_reason",
+    "last_search_at",
+    "created_at",
+    "updated_at",
+    "matches",
+}
+QUESTION_MATCH_FIELDS = {
+    "id",
+    "question_id",
+    "document_id",
+    "document_filename",
+    "page_no",
+    "chunk_id",
+    "score",
+    "rank",
+    "confidence_level",
+    "confidence_label",
+    "hit_reason",
+    "source_text",
+    "context_before",
+    "context_after",
+    "pdf_url",
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -764,6 +793,132 @@ def check_question_history_api() -> None:
         delete_project_records([project_id, other_project_id])
 
 
+def check_question_detail_api() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"题目详情接口-{suffix}")
+    try:
+        with connect() as conn:
+            document = conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
+                )
+                VALUES (%s, 'question-detail.pdf', 'application/pdf', 'uploads/question-detail.pdf', 1, 1, 1, 'good', true, 'completed', 'completed')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, 'before answer after', 'before answer after', 19)
+                RETURNING id
+                """,
+                (document["id"],),
+            ).fetchone()
+            chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, 'answer', 7, 13, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-question-detail-api')
+                RETURNING id
+                """,
+                (document["id"], page["id"], vector_literal([1.0] + [0.0] * 1023)),
+            ).fetchone()
+            completed_question = conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'completed detail question', 'completed', '2099-01-01 00:00:00+00', '2099-01-01 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            no_source_question = conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'no source detail question', 'no_reliable_source', '2099-01-02 00:00:00+00', '2099-01-02 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            failed_question = conn.execute(
+                """
+                INSERT INTO questions (
+                  project_id, text, status, failure_code, failure_reason, last_search_at, updated_at
+                )
+                VALUES (%s, 'failed detail question', 'failed', 'source_context_failed', '来源上下文生成失败', '2099-01-03 00:00:00+00', '2099-01-03 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            match = conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, 0.82, 1, 'strong', 'question detail fixture', 'answer', 'before ', ' after')
+                RETURNING id
+                """,
+                (completed_question["id"], chunk["id"], document["id"]),
+            ).fetchone()
+            conn.commit()
+
+        missing_question = client.get("/questions/999999999")
+        require_status(missing_question, 404, "题目不存在")
+
+        completed = client.get(f"/questions/{completed_question['id']}")
+        require_status(completed, 200)
+        completed_body = completed.json()
+        require(set(completed_body) == QUESTION_DETAIL_FIELDS, f"question detail fields mismatch: {sorted(completed_body)}")
+        require(completed_body["id"] == completed_question["id"], "question detail id mismatch")
+        require(completed_body["project_id"] == project_id, "question detail project_id mismatch")
+        require(completed_body["status"] == "completed", "completed question status mismatch")
+        require(completed_body["failure_code"] is None, "completed question failure_code must be null")
+        require(completed_body["failure_reason"] is None, "completed question failure_reason must be null")
+        require(len(completed_body["matches"]) == 1, "completed question match count mismatch")
+        completed_match = completed_body["matches"][0]
+        require(set(completed_match) == QUESTION_MATCH_FIELDS, f"question match fields mismatch: {sorted(completed_match)}")
+        require(completed_match["id"] == match["id"], "question match id mismatch")
+        require(completed_match["question_id"] == completed_question["id"], "question match question_id mismatch")
+        require(completed_match["document_id"] == document["id"], "question match document_id mismatch")
+        require(completed_match["document_filename"] == "question-detail.pdf", "question match document_filename mismatch")
+        require(completed_match["page_no"] == 1, "question match page_no mismatch")
+        require(completed_match["chunk_id"] == chunk["id"], "question match chunk_id mismatch")
+        require(completed_match["confidence_level"] == "strong", "question match confidence_level mismatch")
+        require(completed_match["confidence_label"] == "强相关", "question match confidence_label mismatch")
+        require(completed_match["source_text"] == "answer", "question match source_text mismatch")
+        require(completed_match["context_before"] == "before ", "question match context_before mismatch")
+        require(completed_match["context_after"] == " after", "question match context_after mismatch")
+        require(completed_match["pdf_url"] == f"/documents/{document['id']}/file#page=1", "question match pdf_url mismatch")
+        require("filename" not in completed_match, "question match leaked legacy filename field")
+
+        no_source = client.get(f"/questions/{no_source_question['id']}")
+        require_status(no_source, 200)
+        no_source_body = no_source.json()
+        require(set(no_source_body) == QUESTION_DETAIL_FIELDS, f"no-source question fields mismatch: {sorted(no_source_body)}")
+        require(no_source_body["status"] == "no_reliable_source", "no-source question status mismatch")
+        require(no_source_body["failure_code"] is None, "no-source failure_code must be null")
+        require(no_source_body["failure_reason"] is None, "no-source failure_reason must be null")
+        require(no_source_body["matches"] == [], "no-source matches must be empty")
+
+        failed = client.get(f"/questions/{failed_question['id']}")
+        require_status(failed, 200)
+        failed_body = failed.json()
+        require(set(failed_body) == QUESTION_DETAIL_FIELDS, f"failed question fields mismatch: {sorted(failed_body)}")
+        require(failed_body["status"] == "failed", "failed question status mismatch")
+        require(failed_body["failure_code"] == "source_context_failed", "failed question failure_code mismatch")
+        require(failed_body["failure_reason"] == "来源上下文生成失败", "failed question failure_reason mismatch")
+        require(failed_body["matches"] == [], "failed question matches must be empty")
+    finally:
+        delete_project_records([project_id])
+
+
 def check_stale_source() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -859,6 +1014,7 @@ def main() -> None:
         "v020-project-name-limits": check_project_name_limits,
         "v020-question-scope-errors": check_question_scope_errors,
         "v020-question-history-api": check_question_history_api,
+        "v020-question-detail-api": check_question_detail_api,
         "v020-stale-source": check_stale_source,
     }
     if check not in checks:

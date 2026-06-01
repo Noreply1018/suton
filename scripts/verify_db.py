@@ -1012,8 +1012,10 @@ def check_v020_source_detail_fields() -> None:
         question_detail = client.get(f"/questions/{question['id']}")
         require(question_detail.status_code == 200, f"question detail expected HTTP 200, got {question_detail.status_code}: {question_detail.text}")
         matches = question_detail.json()["matches"]
+        expected_question_match_fields = set(expected_fields)
+        expected_question_match_fields.remove("filename")
         require(len(matches) == 1, "question detail source match count mismatch")
-        require(set(matches[0]) == expected_fields, f"question match fields mismatch: {sorted(matches[0])}")
+        require(set(matches[0]) == expected_question_match_fields, f"question match fields mismatch: {sorted(matches[0])}")
         require(matches[0]["confidence_label"] == "强相关", "question match confidence_label mismatch")
 
         conn.execute("DELETE FROM projects WHERE id = %s", (project["id"],))

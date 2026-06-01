@@ -41,12 +41,14 @@ type Match = {
   hit_reason: string;
   source_text: string;
   page_no: number;
-  filename: string;
+  document_filename: string;
   pdf_url: string;
 };
 
 type QuestionResult = {
-  question: { id: number; text: string; status: string };
+  id: number;
+  text: string;
+  status: string;
   matches: Match[];
 };
 
@@ -401,7 +403,7 @@ export default function Home() {
                   <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="break-all text-sm font-semibold text-[#203a2b]">
-                        {match.rank}. {match.filename} 第 {match.page_no} 页
+                        {match.rank}. {match.document_filename} 第 {match.page_no} 页
                       </p>
                       <p className="mt-1 text-xs text-[#5e6d5d]">
                         pgvector 相似度 {match.score.toFixed(4)} · {match.hit_reason}
@@ -483,5 +485,5 @@ function statusLabel(value: string) {
 }
 
 function hasSource(match: Match) {
-  return Boolean(match.filename && match.page_no && match.source_text.trim() && match.pdf_url);
+  return Boolean(match.document_filename && match.page_no && match.source_text.trim() && match.pdf_url);
 }
