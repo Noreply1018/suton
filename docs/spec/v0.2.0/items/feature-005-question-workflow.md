@@ -17,7 +17,7 @@
   - 检索范围由 `document_ids` 指定；为 `null` 时使用当前项目全部 `completed` 且 `searchable = true` 的资料；为空数组时返回 HTTP 400，`detail` 固定为 `检索范围不能为空`。
   - 指定资料不属于当前项目、资料未完成或 `searchable = false` 时返回 HTTP 400，`detail` 固定为 `检索范围包含不可用资料`。
   - 当前项目没有可检索资料时返回 HTTP 409，`detail` 固定为 `需先上传并处理资料`。
-  - 后端最多返回前 8 条 score >= 0.40 的来源结果；排序固定为 score 降序，score 相同按 chunk ID 升序。
+  - 后端最多返回前 20 条 score >= 0.40 的来源结果；排序固定为 score 降序，score 相同按 chunk ID 升序。
   - 没有 score >= 0.40 的来源结果时，题目状态固定为 `no_reliable_source`，响应中 `matches` 为空数组。
   - 重新检索请求体固定为 `{ "document_ids": number[] | null }`，错误契约与新题检索一致；重新检索成功后，该题旧结果必须从当前可见结果中消失；若重新检索得到无可靠来源，历史题目仍保留，但显示无可靠来源状态。
   - 新题检索和重新检索响应体固定为题目详情对象，字段为 `id`、`project_id`、`text`、`status`、`failure_code`、`failure_reason`、`last_search_at`、`created_at`、`updated_at`、`matches`。

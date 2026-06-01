@@ -565,7 +565,7 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-2 overflow-auto">
+          <div className="min-h-0 max-h-[420px] flex-1 space-y-2 overflow-auto max-xl:max-h-[280px]" data-testid="project-list">
             {projects.length === 0 ? (
               <p className="border-y border-[#d8dfd0] py-5 text-sm leading-6 text-[#526050]">创建一个项目后开始上传资料。</p>
             ) : (
@@ -702,7 +702,7 @@ export default function Home() {
                 </p>
               )}
 
-              <div className="divide-y divide-[#dce4d7] border-y border-[#dce4d7]">
+              <div className="max-h-[420px] divide-y divide-[#dce4d7] overflow-y-auto border-y border-[#dce4d7] pr-1" data-testid="document-list">
                 {!activeProject ? (
                   <FirstEmptyProject />
                 ) : documents.length === 0 ? (
@@ -806,7 +806,7 @@ export default function Home() {
           ) : sourcedMatches.length === 0 ? (
             <EmptyResults>没有匹配资料。系统不会生成无来源答案。</EmptyResults>
           ) : (
-            <div className="space-y-4">
+            <div className="max-h-[calc(100svh-190px)] space-y-4 overflow-y-auto pr-1 max-xl:max-h-[430px]" data-testid="source-results-list">
               {sourcedMatches.map((match) => (
                 <article
                   key={match.id}

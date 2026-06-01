@@ -418,7 +418,7 @@ def write_question_search_results(conn, question_id: int, project_id: int, query
           AND c.text IS NOT NULL
           AND c.page_no IS NOT NULL
         ORDER BY c.embedding <=> %s::vector
-        LIMIT 5
+        LIMIT 20
         """,
         params,
     ).fetchall()

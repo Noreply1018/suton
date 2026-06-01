@@ -82,7 +82,7 @@ evidence-package-with-tests:
 	uv run --project backend python scripts/collect_evidence.py --with-tests
 
 verify-e2e:
-	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits|v020-project-rename-delete|v020-project-delete-selection|v020-document-delete|v020-document-health|v020-document-detail-fields|v020-document-scope-disabled|v020-processing-failure|v020-processing-refresh|v020-processing-polling-coalesced|v020-source-reader-open|v020-source-reader-switch|v020-source-reader-page-nav|v020-source-reader-mobile|v020-source-reader-file-missing|v020-source-reader-stale-source|v020-confidence-levels|v020-question-history-long-text|v020-no-source-actions)$$ ]]; then \
+	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits|v020-project-rename-delete|v020-project-delete-selection|v020-document-delete|v020-document-health|v020-document-detail-fields|v020-document-scope-disabled|v020-processing-failure|v020-processing-refresh|v020-processing-polling-coalesced|v020-source-reader-open|v020-source-reader-switch|v020-source-reader-page-nav|v020-source-reader-mobile|v020-source-reader-file-missing|v020-source-reader-stale-source|v020-confidence-levels|v020-question-history-long-text|v020-no-source-actions|v020-long-lists)$$ ]]; then \
 		uv run --project backend python scripts/dev_check.py --skip-embedding; \
 	else \
 		uv run --project backend python scripts/dev_check.py; \
@@ -105,7 +105,7 @@ verify-visual:
 ifeq ($(CHECK),design-tokens)
 	uv run --project backend python scripts/verify_design_tokens.py
 else
-	@if [[ "$$CHECK" != "source-page-nav" && "$$CHECK" != "source-reader-mobile" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "legacy-frontend-removed" && "$$CHECK" != "mobile-workspace" && "$$CHECK" != "question-history-long-text" && "$$CHECK" != "no-source-actions" ]]; then \
+	@if [[ "$$CHECK" != "source-page-nav" && "$$CHECK" != "source-reader-mobile" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "legacy-frontend-removed" && "$$CHECK" != "mobile-workspace" && "$$CHECK" != "question-history-long-text" && "$$CHECK" != "no-source-actions" && "$$CHECK" != "long-lists" ]]; then \
 		echo "unsupported visual CHECK: $$CHECK"; exit 2; \
 	fi
 	uv run --project backend python scripts/dev_check.py --skip-embedding
@@ -120,7 +120,7 @@ else
 	 cleanup() { kill -TERM -- -$$worker_pid -$$api_pid -$$web_pid 2>/dev/null || true; wait $$worker_pid $$api_pid $$web_pid 2>/dev/null || true; }; \
 	 trap cleanup INT TERM EXIT; \
 	 uv run --project backend python scripts/wait_http.py "$$api_url/health" "$$web_url" && \
-	 if [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; elif [[ "$$CHECK" == "source-reader-mobile" ]]; then visual_grep="visual-source-reader-mobile"; elif [[ "$$CHECK" == "first-empty-project" ]]; then visual_grep="visual-first-empty-project"; elif [[ "$$CHECK" == "legacy-copy-removed" ]]; then visual_grep="visual-legacy-copy-removed"; elif [[ "$$CHECK" == "legacy-frontend-removed" ]]; then visual_grep="visual-legacy-frontend-removed"; elif [[ "$$CHECK" == "question-history-long-text" ]]; then visual_grep="visual-question-history-long-text"; elif [[ "$$CHECK" == "no-source-actions" ]]; then visual_grep="visual-no-source-actions"; else visual_grep="visual-mobile-workspace"; fi; \
+	 if [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; elif [[ "$$CHECK" == "source-reader-mobile" ]]; then visual_grep="visual-source-reader-mobile"; elif [[ "$$CHECK" == "first-empty-project" ]]; then visual_grep="visual-first-empty-project"; elif [[ "$$CHECK" == "legacy-copy-removed" ]]; then visual_grep="visual-legacy-copy-removed"; elif [[ "$$CHECK" == "legacy-frontend-removed" ]]; then visual_grep="visual-legacy-frontend-removed"; elif [[ "$$CHECK" == "question-history-long-text" ]]; then visual_grep="visual-question-history-long-text"; elif [[ "$$CHECK" == "no-source-actions" ]]; then visual_grep="visual-no-source-actions"; elif [[ "$$CHECK" == "long-lists" ]]; then visual_grep="visual-long-lists"; else visual_grep="visual-mobile-workspace"; fi; \
 	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test --grep "$$visual_grep"; status=$$?; cleanup; exit $$status)
 endif
 

@@ -79,6 +79,15 @@ type NoSourceActionsSeed = {
   unavailable_document_id: number;
 };
 
+type LongListsSeed = {
+  project_id: number;
+  project_name: string;
+  question_id: number;
+  project_ids: number[];
+  document_ids: number[];
+  question_ids: number[];
+};
+
 async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByRole("button", { name: "新建项目" }).click();
@@ -183,10 +192,42 @@ function seedNoSourceActions() {
   return JSON.parse(output) as NoSourceActionsSeed;
 }
 
+function seedLongLists() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_long_lists.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as LongListsSeed;
+}
+
 async function expectDetailItem(page: Page, testId: string, label: string, value: string) {
   const item = page.getByTestId(`document-detail-${testId}`);
   await expect(item).toContainText(label);
   await expect(item).toContainText(value);
+}
+
+async function longListMetrics(page: Page) {
+  return page.evaluate(() => {
+    function listMetric(testId: string) {
+      const element = document.querySelector(`[data-testid="${testId}"]`);
+      if (!element) throw new Error(`${testId} missing`);
+      return {
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        scrolls: element.scrollHeight > element.clientHeight + 1
+      };
+    }
+
+    return {
+      projectList: listMetric("project-list"),
+      documentList: listMetric("document-list"),
+      questionHistory: listMetric("question-history-list"),
+      sourceResults: listMetric("source-results-list"),
+      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      pageHeight: document.documentElement.scrollHeight
+    };
+  });
 }
 
 async function uploadMaterial(page: Page) {
@@ -1058,6 +1099,70 @@ test("visual-no-source-actions：生成无可靠来源行动入口截图", async
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("v020-long-lists：项目资料题目和来源长列表在区域内滚动", async ({ page }) => {
+  const seed = seedLongLists();
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await expect(page.getByTestId("project-list").getByRole("button")).toHaveCount(20);
+    await expect(page.getByTestId("document-list").locator("[data-testid^='document-row-']")).toHaveCount(20);
+    await expect(page.getByTestId("question-history-item")).toHaveCount(20);
+    await expect(page.getByTestId("source-card")).toHaveCount(20);
+
+    const metrics = await longListMetrics(page);
+    expect(metrics.projectList.scrolls).toBe(true);
+    expect(metrics.documentList.scrolls).toBe(true);
+    expect(metrics.questionHistory.scrolls).toBe(true);
+    expect(metrics.sourceResults.scrolls).toBe(true);
+    expect(metrics.horizontalOverflow).toBeLessThanOrEqual(1);
+    expect(metrics.pageHeight).toBeLessThanOrEqual(1800);
+  } finally {
+    for (const projectId of seed.project_ids) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    }
+  }
+});
+
+test("visual-long-lists：生成长列表布局截图", async ({ page }) => {
+  const seed = seedLongLists();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const desktopScreenshotPath = resolve(evidenceDir, "1440x900-long-lists.png");
+  const mobileScreenshotPath = resolve(evidenceDir, "390x844-long-lists.png");
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    for (const viewport of [
+      { width: 1440, height: 900, screenshotPath: desktopScreenshotPath, maxPageHeight: 1800 },
+      { width: 390, height: 844, screenshotPath: mobileScreenshotPath, maxPageHeight: 3000 }
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto(`/?questionId=${seed.question_id}`);
+      await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+      await expect(page.getByTestId("project-list").getByRole("button")).toHaveCount(20);
+      await expect(page.getByTestId("document-list").locator("[data-testid^='document-row-']")).toHaveCount(20);
+      await expect(page.getByTestId("question-history-item")).toHaveCount(20);
+      await expect(page.getByTestId("source-card")).toHaveCount(20);
+
+      const metrics = await longListMetrics(page);
+      expect(metrics.projectList.scrolls).toBe(true);
+      expect(metrics.documentList.scrolls).toBe(true);
+      expect(metrics.questionHistory.scrolls).toBe(true);
+      expect(metrics.sourceResults.scrolls).toBe(true);
+      expect(metrics.horizontalOverflow).toBeLessThanOrEqual(1);
+      expect(metrics.pageHeight).toBeLessThanOrEqual(viewport.maxPageHeight);
+
+      await page.screenshot({ path: viewport.screenshotPath, fullPage: true });
+      expect(statSync(viewport.screenshotPath).size).toBeGreaterThan(1000);
+    }
+  } finally {
+    for (const projectId of seed.project_ids) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    }
   }
 });
 

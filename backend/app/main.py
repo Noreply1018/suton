@@ -406,7 +406,7 @@ def get_question(question_id: int) -> dict:
               AND c.page_no IS NOT NULL
               AND d.filename IS NOT NULL
             ORDER BY qm.rank
-            LIMIT 5
+            LIMIT 20
             """,
             (question_id,),
         ).fetchall()
