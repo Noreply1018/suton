@@ -11,9 +11,13 @@ import {
   FolderOpen,
   Library,
   Loader2,
+  MoreHorizontal,
+  Pencil,
   Plus,
   Search,
-  ShieldCheck
+  ShieldCheck,
+  Trash2,
+  X
 } from "lucide-react";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -68,7 +72,10 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
-  const [projectName, setProjectName] = useState("");
+  const [projectDialog, setProjectDialog] = useState<"create" | "rename" | "delete" | null>(null);
+  const [projectFormName, setProjectFormName] = useState("");
+  const [projectDialogError, setProjectDialogError] = useState("");
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QuestionResult | null>(null);
   const [error, setError] = useState("");
@@ -142,20 +149,106 @@ export default function Home() {
     }
   }
 
+  function openCreateProjectDialog() {
+    setProjectFormName("");
+    setProjectDialogError("");
+    setProjectMenuOpen(false);
+    setProjectDialog("create");
+  }
+
+  function openRenameProjectDialog() {
+    if (!activeProject) return;
+    setProjectFormName(activeProject.name);
+    setProjectDialogError("");
+    setProjectMenuOpen(false);
+    setProjectDialog("rename");
+  }
+
+  function openDeleteProjectDialog() {
+    if (!activeProject) return;
+    setProjectDialogError("");
+    setProjectMenuOpen(false);
+    setProjectDialog("delete");
+  }
+
+  function closeProjectDialog() {
+    if (busy) return;
+    setProjectDialog(null);
+    setProjectDialogError("");
+  }
+
+  function validateProjectName(name: string) {
+    const trimmedName = name.trim();
+    if (!trimmedName) return "项目名称不能为空";
+    if (trimmedName.length > 80) return "项目名称不能超过 80 个字符";
+    return "";
+  }
+
   async function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
+    const validationError = validateProjectName(projectFormName);
+    if (validationError) {
+      setProjectDialogError(validationError);
+      return;
+    }
+    setProjectDialogError("");
     setBusy(true);
     try {
       const project = await request<Project>("/projects", {
         method: "POST",
-        body: JSON.stringify({ name: projectName })
+        body: JSON.stringify({ name: projectFormName })
+      });
+      setActiveProjectId(project.id);
+      activeProjectIdRef.current = project.id;
+      setResult(null);
+      await refresh(project.id);
+      setProjectDialog(null);
+      setProjectFormName("");
+    } catch (err) {
+      setProjectDialogError(err instanceof Error ? err.message : "创建项目失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function renameProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeProject) return;
+    const validationError = validateProjectName(projectFormName);
+    if (validationError) {
+      setProjectDialogError(validationError);
+      return;
+    }
+    setProjectDialogError("");
+    setBusy(true);
+    const projectId = activeProject.id;
+    try {
+      const project = await request<Project>(`/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: projectFormName })
       });
       setActiveProjectId(project.id);
       activeProjectIdRef.current = project.id;
       await refresh(project.id);
+      setProjectDialog(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "创建项目失败");
+      setProjectDialogError(err instanceof Error ? err.message : "重命名项目失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProject() {
+    if (!activeProject) return;
+    setProjectDialogError("");
+    setBusy(true);
+    try {
+      await request(`/projects/${activeProject.id}`, { method: "DELETE" });
+      setResult(null);
+      await refresh();
+      setProjectDialog(null);
+    } catch (err) {
+      setProjectDialogError(err instanceof Error ? err.message : "删除项目失败");
     } finally {
       setBusy(false);
     }
@@ -230,25 +323,16 @@ export default function Home() {
             </div>
           </div>
 
-          <form onSubmit={createProject} className="mb-5 space-y-3">
-            <label className="text-sm font-semibold text-[#273d2f]" htmlFor="project-name">
-              新建项目
-            </label>
-            <input
-              id="project-name"
-              value={projectName}
-              onChange={(event) => setProjectName(event.target.value)}
-              placeholder="输入课程或复习项目名称"
-              className="focus-ring w-full rounded-md border border-[#cbd8c9] bg-[#fbfcf8] px-3 py-2 text-sm"
-            />
+          <div className="mb-5">
             <button
-              disabled={busy}
-              className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#315f43] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#264b35] disabled:opacity-55"
+              type="button"
+              onClick={openCreateProjectDialog}
+              className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#315f43] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#264b35]"
             >
               <Plus size={16} />
-              创建项目
+              新建项目
             </button>
-          </form>
+          </div>
 
           <div className="min-h-0 flex-1 space-y-2 overflow-auto">
             {projects.length === 0 ? (
@@ -288,9 +372,44 @@ export default function Home() {
           <div className="mb-6 flex items-start justify-between gap-5 max-md:flex-col">
             <div className="min-w-0">
               <p className="mb-2 text-sm font-semibold text-[#496f45]">当前项目</p>
-              <h2 className="break-words text-3xl font-semibold tracking-normal text-[#1f3428]">
-                {activeProject?.name ?? "尚未创建项目"}
-              </h2>
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="break-words text-3xl font-semibold tracking-normal text-[#1f3428]">
+                  {activeProject?.name ?? "尚未创建项目"}
+                </h2>
+                {activeProject && (
+                  <div className="relative shrink-0">
+                    <button
+                      type="button"
+                      aria-label="项目操作"
+                      aria-expanded={projectMenuOpen}
+                      onClick={() => setProjectMenuOpen((open) => !open)}
+                      className="focus-ring grid h-9 w-9 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] hover:bg-[#edf6e9]"
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                    {projectMenuOpen && (
+                      <div className="absolute left-0 top-11 z-20 w-36 rounded-md border border-[#c8d8c7] bg-[#fbfcf8] p-1 shadow-lg">
+                        <button
+                          type="button"
+                          onClick={openRenameProjectDialog}
+                          className="focus-ring flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm text-[#273d2f] hover:bg-[#edf6e9]"
+                        >
+                          <Pencil size={15} />
+                          重命名
+                        </button>
+                        <button
+                          type="button"
+                          onClick={openDeleteProjectDialog}
+                          className="focus-ring flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm text-[#9d4d2f] hover:bg-[#fff1ec]"
+                        >
+                          <Trash2 size={15} />
+                          删除项目
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-md border border-[#d0dccd] bg-[#f9fbf5] px-3 py-2 text-sm text-[#425542]">
               <CheckCircle2 size={16} />
@@ -317,11 +436,16 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
-                  disabled={!activeProject}
                   aria-describedby="document-upload-note"
-                  onClick={() => documentFileInputRef.current?.click()}
+                  onClick={() => {
+                    if (activeProject) {
+                      documentFileInputRef.current?.click();
+                    } else {
+                      openCreateProjectDialog();
+                    }
+                  }}
                   className={`focus-ring inline-flex items-center gap-2 rounded-md border border-[#b8cdb8] px-3 py-2 text-sm font-semibold text-[#244c35] transition ${
-                    activeProject ? "bg-[#e4f0df] hover:bg-[#d9ead4]" : "cursor-not-allowed bg-[#edf2e9] opacity-65"
+                    activeProject ? "bg-[#e4f0df] hover:bg-[#d9ead4]" : "bg-[#e4f0df] hover:bg-[#d9ead4]"
                   }`}
                 >
                   <FileUp size={16} />
@@ -428,7 +552,172 @@ export default function Home() {
           )}
         </aside>
       </div>
+      {projectDialog === "create" && (
+        <ProjectNameDialog
+          title="新建项目"
+          submitLabel="创建"
+          name={projectFormName}
+          error={projectDialogError}
+          busy={busy}
+          onNameChange={setProjectFormName}
+          onClose={closeProjectDialog}
+          onSubmit={createProject}
+        />
+      )}
+      {projectDialog === "rename" && (
+        <ProjectNameDialog
+          title="重命名项目"
+          submitLabel="保存"
+          name={projectFormName}
+          error={projectDialogError}
+          busy={busy}
+          onNameChange={setProjectFormName}
+          onClose={closeProjectDialog}
+          onSubmit={renameProject}
+        />
+      )}
+      {projectDialog === "delete" && activeProject && (
+        <ProjectDeleteDialog project={activeProject} error={projectDialogError} busy={busy} onClose={closeProjectDialog} onConfirm={deleteProject} />
+      )}
     </main>
+  );
+}
+
+function ProjectNameDialog({
+  title,
+  submitLabel,
+  name,
+  error,
+  busy,
+  onNameChange,
+  onClose,
+  onSubmit
+}: {
+  title: string;
+  submitLabel: string;
+  name: string;
+  error: string;
+  busy: boolean;
+  onNameChange: (name: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <DialogFrame title={title} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div>
+          <label className="mb-2 block text-sm font-semibold text-[#273d2f]" htmlFor="project-dialog-name">
+            项目名称
+          </label>
+          <input
+            id="project-dialog-name"
+            autoFocus
+            value={name}
+            onChange={(event) => onNameChange(event.target.value)}
+            placeholder="例如：高性能计算期末"
+            className="focus-ring w-full rounded-md border border-[#cbd8c9] bg-[#fbfcf8] px-3 py-2 text-sm"
+          />
+          {error && <p className="mt-2 text-sm text-[#9d4d2f]">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+            className="focus-ring rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#315f43] disabled:opacity-55"
+          >
+            取消
+          </button>
+          <button
+            disabled={busy}
+            className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#315f43] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
+          >
+            {busy && <Loader2 size={16} className="animate-spin" />}
+            {submitLabel}
+          </button>
+        </div>
+      </form>
+    </DialogFrame>
+  );
+}
+
+function ProjectDeleteDialog({
+  project,
+  error,
+  busy,
+  onClose,
+  onConfirm
+}: {
+  project: Project;
+  error: string;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <DialogFrame title="删除项目" onClose={onClose}>
+      <div className="space-y-3 text-sm leading-6 text-[#3f5142]">
+        <p className="font-semibold text-[#1f3428]">删除项目及其全部资料</p>
+        <p>将删除项目、全部资料、题目和来源结果。</p>
+        <p>
+          项目：{project.name} · 资料 {project.document_count} 份 · 题目 {project.question_count} 道
+        </p>
+        {error && <p className="text-[#9d4d2f]">{error}</p>}
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onClose}
+          className="focus-ring rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#315f43] disabled:opacity-55"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onConfirm}
+          className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#9d4d2f] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
+        >
+          {busy && <Loader2 size={16} className="animate-spin" />}
+          确认删除
+        </button>
+      </div>
+    </DialogFrame>
+  );
+}
+
+function DialogFrame({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div
+      role="presentation"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onClose();
+      }}
+      className="fixed inset-0 z-50 grid place-items-center bg-[#17251d]/35 px-4"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-dialog-title"
+        className="w-full max-w-[440px] rounded-md border border-[#c8d8c7] bg-[#fbfcf8] p-5 shadow-xl"
+      >
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h2 id="project-dialog-title" className="text-xl font-semibold text-[#1f3428]">
+            {title}
+          </h2>
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={onClose}
+            className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] text-[#315f43] hover:bg-[#edf6e9]"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
 
