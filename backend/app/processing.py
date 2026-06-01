@@ -274,7 +274,14 @@ def research_question(question_id: int, document_ids: list[int] | None = None) -
     if not question:
         raise ValueError(f"question not found: {question_id}")
     query_embedding = embed_texts([question["text"]])[0]
+    return research_question_with_embedding(question_id, document_ids, query_embedding)
+
+
+def research_question_with_embedding(question_id: int, document_ids: list[int] | None, query_embedding: list[float]) -> int:
     with connect() as conn:
+        question = conn.execute("SELECT project_id FROM questions WHERE id = %s", (question_id,)).fetchone()
+        if not question:
+            raise ValueError(f"question not found: {question_id}")
         with conn.transaction():
             locked = conn.execute("SELECT id FROM questions WHERE id = %s FOR UPDATE", (question_id,)).fetchone()
             if not locked:

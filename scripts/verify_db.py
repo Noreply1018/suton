@@ -8,7 +8,13 @@ import time
 
 from app.config import settings
 from app.db import connect, vector_literal
-from app.processing import confidence_level_for_score, document_searchable_for_fields, process_document, text_quality_for_counts
+from app.processing import (
+    confidence_level_for_score,
+    document_searchable_for_fields,
+    process_document,
+    research_question_with_embedding,
+    text_quality_for_counts,
+)
 
 migrated_project_name = runpy.run_path("scripts/migrate.py")["migrated_project_name"]
 
@@ -1446,6 +1452,119 @@ def check_v020_confidence_level_fields() -> None:
         require(match["score"] >= 0.40, f"confidence field score below threshold for {level}: {match['score']}")
 
 
+def check_v020_question_research_consistency() -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    query = [1.0, 0.0] + [0.0] * 1022
+    with connect() as conn:
+        project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-question-research-{suffix}",)).fetchone()
+        document = conn.execute(
+            """
+            INSERT INTO documents (
+              project_id, filename, content_type, storage_path, page_count,
+              extractable_page_count, chunk_count, text_quality, searchable,
+              status, processing_stage
+            )
+            VALUES (%s, 'question-research.pdf', 'application/pdf', 'uploads/question-research.pdf', 1, 1, 3, 'good', true, 'completed', 'completed')
+            RETURNING id
+            """,
+            (project["id"],),
+        ).fetchone()
+        page_text = "alpha beta old"
+        page = conn.execute(
+            """
+            INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+            VALUES (%s, 1, %s, %s, %s)
+            RETURNING id
+            """,
+            (document["id"], page_text, page_text, len(page_text)),
+        ).fetchone()
+        chunks = {}
+        for text, embedding in [
+            ("alpha", [1.0, 0.0] + [0.0] * 1022),
+            ("beta", [0.6, 0.8] + [0.0] * 1022),
+            ("old", [0.0, 1.0] + [0.0] * 1022),
+        ]:
+            start = page_text.index(text)
+            chunks[text] = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-question-research-consistency')
+                RETURNING id
+                """,
+                (document["id"], page["id"], text, start, start + len(text), vector_literal(embedding)),
+            ).fetchone()
+        question = conn.execute(
+            """
+            INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+            VALUES (%s, 'research query', 'completed', '2001-01-01 00:00:00+00', '2001-01-01 00:00:00+00')
+            RETURNING id
+            """,
+            (project["id"],),
+        ).fetchone()
+        old_match = conn.execute(
+            """
+            INSERT INTO question_matches (
+              question_id, chunk_id, document_id, page_no, score, rank,
+              confidence_level, hit_reason, source_text, context_before, context_after
+            )
+            VALUES (%s, %s, %s, 1, 0.88, 1, 'strong', 'old research fixture', 'old', 'alpha beta ', '')
+            RETURNING id
+            """,
+            (question["id"], chunks["old"]["id"], document["id"]),
+        ).fetchone()
+        conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project["id"],))
+        conn.commit()
+
+    try:
+        research_question_with_embedding(question["id"], None, query)
+        client = TestClient(app)
+        response = client.get(f"/questions/{question['id']}")
+        require(response.status_code == 200, f"researched question expected HTTP 200, got {response.status_code}: {response.text}")
+        body = response.json()
+        require(body["id"] == question["id"], "research changed question id")
+        require(body["status"] == "completed", "research did not complete question")
+        require(body["failure_code"] is None, "research completed question retained failure_code")
+        require(body["failure_reason"] is None, "research completed question retained failure_reason")
+        matches = body["matches"]
+        require(len(matches) == 2, f"research expected two current matches, got {matches!r}")
+        require([match["source_text"] for match in matches] == ["alpha", "beta"], "research did not replace visible matches in rank order")
+        require([match["rank"] for match in matches] == [1, 2], "research match ranks mismatch")
+        require(matches[0]["confidence_level"] == "strong", "research top confidence_level mismatch")
+        require(matches[1]["confidence_level"] == "reference", "research second confidence_level mismatch")
+        require(all(match["question_id"] == question["id"] for match in matches), "research returned match for another question")
+
+        with connect() as conn:
+            counts = conn.execute(
+                """
+                SELECT
+                  COUNT(*) FILTER (WHERE id = %s)::int AS old_match_count,
+                  COUNT(*) FILTER (WHERE question_id = %s)::int AS current_match_count
+                FROM question_matches
+                """,
+                (old_match["id"], question["id"]),
+            ).fetchone()
+            saved_question = conn.execute("SELECT last_search_at, updated_at FROM questions WHERE id = %s", (question["id"],)).fetchone()
+            saved_project = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project["id"],)).fetchone()
+            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE project_id = %s", (project["id"],)).fetchone()["value"]
+        require(counts["old_match_count"] == 0, "research kept old question_match")
+        require(counts["current_match_count"] == 2, "research did not persist exactly two current matches")
+        require(question_count == 1, "research created a replacement question instead of preserving history record")
+        require(str(saved_question["last_search_at"]) > "2001-01-01", "research did not update last_search_at")
+        require(saved_question["updated_at"] == saved_question["last_search_at"], "research did not sync question updated_at with last_search_at")
+        require(str(saved_project["updated_at"]) > "2001-01-01", "research did not update project updated_at")
+    finally:
+        with connect() as conn:
+            conn.execute("DELETE FROM projects WHERE id = %s", (project["id"],))
+            conn.commit()
+
+
 def main() -> None:
     check = os.getenv("CHECK", "schema-v0.1.0")
     checks = {
@@ -1480,6 +1599,7 @@ def main() -> None:
         "no-question-matches": check_no_question_matches,
         "v020-confidence-levels": check_v020_confidence_levels,
         "v020-confidence-level-fields": check_v020_confidence_level_fields,
+        "v020-question-research-consistency": check_v020_question_research_consistency,
     }
     if check not in checks:
         raise SystemExit(f"unsupported CHECK={check}")
