@@ -23,6 +23,10 @@
   - 左侧项目栏包含项目列表、项目新建入口和当前项目统计；只有项目列表滚动，项目栏头部和新建入口固定。
   - 中间主工作区自上而下固定为当前项目标题栏、资料管理区、题目检索区、题目历史区；资料列表和题目历史分别在内部滚动。
   - 右侧来源阅读区固定包含来源结果列表、来源详情和 PDF 阅读壳；来源结果列表和 PDF 阅读内容分别在内部滚动。
+  - 当前项目标题栏固定展示项目名称、`latest_status` 对应状态、`document_count` 和 `question_count`；状态文案固定为 `空项目`、`处理中`、`需处理`、`可检索`，分别对应 `empty`、`processing`、`failed`、`ready`。
+  - 当前题目工具栏左侧固定展示当前题目文本；题目为空时展示 `输入题目开始检索`；右侧固定展示题目状态、检索范围入口和专注模式入口。
+  - 题目状态文案固定为：无当前题目时展示 `未检索`；请求未完成时展示 `正在检索来源`；`questions.status = completed` 展示 `已找到来源`；`questions.status = no_reliable_source` 展示 `未找到可靠来源`；`questions.status = failed` 展示 `检索失败`。
+  - 来源结果列表必须高亮当前来源；右侧来源阅读区顶部固定展示当前来源文件名、页码、置信层级和排序位置；未选择来源时展示固定空态标题 `选择来源查看 PDF`。
   - 当前题目工具栏高度固定 48px，右侧最后一个工具按钮为专注模式入口，`aria-label` 固定为 `进入专注模式`。
   - 专注模式桌面端隐藏左侧项目栏和中间资料管理区，布局固定为左侧题目与来源结果 420px、右侧 PDF 阅读 `minmax(640px, 1fr)`；退出按钮 `aria-label` 固定为 `退出专注模式`。
   - 退出专注模式后必须恢复进入前的当前项目、当前题目、来源选择、PDF 页码、检索范围和资料列表滚动位置。
@@ -34,7 +38,9 @@
 - 验收标准：
   - 左侧项目区域固定高度并在内部滚动。
   - 资料列表、题目历史和来源结果均不得无限撑长页面。
-  - 当前项目、当前资料处理状态、当前题目和当前来源在视觉层级上清晰。
+  - 当前项目标题栏展示项目名称、状态、资料数量和题目数量。
+  - 当前题目工具栏展示题目文本、固定题目状态文案、检索范围入口和专注模式入口。
+  - 当前来源在来源结果列表中高亮，来源阅读区顶部展示文件名、页码、置信层级和排序位置。
   - 页面首屏不展示低价值大段说明文字。
   - 同一时刻只突出当前任务相关信息。
   - 桌面端提供一键专注模式，入口固定在当前题目工具栏右侧，使用单个图标按钮触发。
@@ -47,7 +53,7 @@
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
 | 长列表布局 | Node.js、pnpm、Playwright 浏览器、Linux、1440x900 和 390x844 viewport、真实 Web | 已通过 `make reset-demo` 准备空库，由测试场景创建 20 个项目、20 份资料记录、20 道题目历史 | 执行 `make verify-e2e SCENARIO=v020-long-lists`；执行 `make verify-visual CHECK=long-lists` | 页面整体高度不被列表无限拉长，项目列表、资料列表、题目历史和来源结果均在各自区域内部滚动 | 未验证 | 待补充 | 阻塞 |
-| 当前上下文清晰 | Node.js、pnpm、Playwright 浏览器、Linux、真实 Web、真实后端、真实 PostgreSQL | 已选择项目，已处理 `tests/fixtures/text-layer-material.pdf`，已检索 `tests/fixtures/question.txt` | 执行 `make verify-visual CHECK=current-context` | 当前项目、当前题目、当前来源一眼可见 | 未验证 | 待补充 | 阻塞 |
+| 当前上下文字段 | Node.js、pnpm、Playwright 浏览器、Linux、真实 Web、真实后端、真实 PostgreSQL | 已选择项目，已处理 `tests/fixtures/text-layer-material.pdf`，已检索 `tests/fixtures/question.txt` 并打开来源详情 | 执行 `make verify-visual CHECK=current-context` | 项目标题栏展示项目名称、状态、资料数量和题目数量；题目工具栏展示题目文本、固定题目状态、检索范围入口和专注模式入口；来源列表高亮当前来源，阅读区顶部展示文件名、页码、置信层级和排序位置 | 未验证 | 待补充 | 阻塞 |
 | 窄屏布局 | Node.js、pnpm、Playwright 浏览器、Linux、390x844 viewport、真实 Web | 已启动 Web 应用并准备固定 fixture 数据 | 执行 `make verify-visual CHECK=mobile-workspace` | 页面无横向溢出、遮挡、文本压缩失败或不可操作控件 | 未验证 | 待补充 | 阻塞 |
 | 专注模式 | Node.js、pnpm、Playwright 浏览器、Linux、1440x900 viewport、真实 Web | 已选择项目，已处理 `tests/fixtures/text-layer-material.pdf`，已检索 `tests/fixtures/question.txt` 并打开来源详情 | 执行 `make verify-e2e SCENARIO=v020-focus-mode`；执行 `make verify-visual CHECK=focus-mode` | 当前题目工具栏右侧存在单个图标入口；点击一次进入专注模式后只保留当前题目、来源结果和 PDF 阅读；顶部左侧退出入口点击一次后恢复上下文 | 未验证 | 待补充 | 阻塞 |
 | 桌面断点 | Node.js、pnpm、Playwright 浏览器、Linux、1440x900、1280x832、1200x800、1024x768 viewport、真实 Web | 已准备固定 fixture 数据 | 执行 `make verify-visual CHECK=workspace-breakpoints` | 三列、紧凑桌面和双栏布局按固定断点生效，页面主体无浏览器级纵向滚动 | 未验证 | 待补充 | 阻塞 |
