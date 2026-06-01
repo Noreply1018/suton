@@ -4,11 +4,12 @@ import re
 from pathlib import Path
 
 import fitz
+from openai import OpenAIError
 import psycopg
 
 from app.config import settings
 from app.db import connect, vector_literal
-from app.embedding import embed_texts
+from app.embedding import EmbeddingConfigurationError, embed_texts
 
 
 MAX_CHUNK_CHARS = 2000
@@ -25,6 +26,11 @@ DOCUMENT_FAILURE_REASONS = {
     "storage_missing": "资料文件不存在",
     "delete_file_failed": "资料文件删除失败",
     "unknown_processing_error": "资料处理失败",
+}
+QUESTION_FAILURE_REASONS = {
+    "embedding_failed": "题目向量生成失败",
+    "source_context_failed": "来源上下文生成失败",
+    "search_failed": "题目检索失败",
 }
 
 
@@ -276,7 +282,10 @@ def reset_document_for_reprocess(document_id: int) -> None:
 
 
 def search_question(project_id: int, text: str, document_ids: list[int] | None = None) -> int:
-    query_embedding = embed_texts([text])[0]
+    try:
+        query_embedding = embed_texts([text])[0]
+    except (EmbeddingConfigurationError, OpenAIError):
+        return create_failed_question(project_id, text, "embedding_failed")
     with connect() as conn:
         question = conn.execute(
             """
@@ -292,13 +301,51 @@ def search_question(project_id: int, text: str, document_ids: list[int] | None =
         return question_id
 
 
+def create_failed_question(project_id: int, text: str, failure_code: str) -> int:
+    with connect() as conn:
+        question = conn.execute(
+            """
+            INSERT INTO questions (
+              project_id, text, status, failure_code, failure_reason,
+              last_search_at, updated_at
+            )
+            VALUES (%s, %s, 'failed', %s, %s, now(), now())
+            RETURNING id
+            """,
+            (project_id, text, failure_code, QUESTION_FAILURE_REASONS[failure_code]),
+        ).fetchone()
+        conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (project_id,))
+        conn.commit()
+        return question["id"]
+
+
 def research_question(question_id: int, document_ids: list[int] | None = None) -> int:
     with connect() as conn:
         question = conn.execute("SELECT project_id, text FROM questions WHERE id = %s", (question_id,)).fetchone()
     if not question:
         raise ValueError(f"question not found: {question_id}")
-    query_embedding = embed_texts([question["text"]])[0]
+    try:
+        query_embedding = embed_texts([question["text"]])[0]
+    except (EmbeddingConfigurationError, OpenAIError):
+        mark_question_failed(question_id, question["project_id"], "embedding_failed")
+        return question_id
     return research_question_with_embedding(question_id, document_ids, query_embedding)
+
+
+def mark_question_failed(question_id: int, project_id: int, failure_code: str) -> None:
+    with connect() as conn:
+        with conn.transaction():
+            conn.execute("DELETE FROM question_matches WHERE question_id = %s", (question_id,))
+            conn.execute(
+                """
+                UPDATE questions
+                SET status = 'failed', failure_code = %s, failure_reason = %s,
+                    last_search_at = now(), updated_at = now()
+                WHERE id = %s
+                """,
+                (failure_code, QUESTION_FAILURE_REASONS[failure_code], question_id),
+            )
+            conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (project_id,))
 
 
 def research_question_with_embedding(question_id: int, document_ids: list[int] | None, query_embedding: list[float]) -> int:

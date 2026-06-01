@@ -131,4 +131,5 @@ v020-api-test:
 	CHECK=v020-question-history-api $(MAKE) verify-api-contract
 	CHECK=v020-question-detail-api $(MAKE) verify-api-contract
 	CHECK=v020-question-research-scope-errors $(MAKE) verify-api-contract
+	CHECK=v020-question-embedding-failure-api $(MAKE) verify-api-contract
 	CHECK=v020-stale-source $(MAKE) verify-api-contract

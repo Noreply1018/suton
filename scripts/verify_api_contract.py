@@ -1204,6 +1204,102 @@ def check_question_research_scope_errors() -> None:
         delete_project_records([project_id, other_project_id, no_searchable_project_id])
 
 
+def check_question_embedding_failure_api() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"题目向量失败-{suffix}")
+    try:
+        document_id = create_document_record(
+            project_id,
+            filename="question-embedding-failure.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        with connect() as conn:
+            page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, 'old embedding failure source', 'old embedding failure source', 28)
+                RETURNING id
+                """,
+                (document_id,),
+            ).fetchone()
+            chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, 'old', 0, 3, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-question-embedding-failure-api')
+                RETURNING id
+                """,
+                (document_id, page["id"], vector_literal([1.0] + [0.0] * 1023)),
+            ).fetchone()
+            old_question = conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'old embedding failure question', 'completed', '2001-01-01 00:00:00+00', '2001-01-01 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            old_match = conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, 0.88, 1, 'strong', 'old embedding failure fixture', 'old', '', '')
+                RETURNING id
+                """,
+                (old_question["id"], chunk["id"], document_id),
+            ).fetchone()
+            conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project_id,))
+            conn.commit()
+
+        original_key = settings.dashscope_api_key
+        object.__setattr__(settings, "dashscope_api_key", None)
+        try:
+            created = client.post(
+                f"/projects/{project_id}/questions",
+                json={"text": "  missing embedding key question  ", "document_ids": None},
+            )
+            require_status(created, 200)
+            created_body = created.json()
+            require(set(created_body) == QUESTION_DETAIL_FIELDS, f"created failed question fields mismatch: {sorted(created_body)}")
+            require(created_body["text"] == "missing embedding key question", "created failed question text was not trimmed")
+            require(created_body["status"] == "failed", "created question did not fail on embedding error")
+            require(created_body["failure_code"] == "embedding_failed", "created question failure_code mismatch")
+            require(created_body["failure_reason"] == "题目向量生成失败", "created question failure_reason mismatch")
+            require(created_body["last_search_at"] is not None, "created failed question last_search_at must be set")
+            require(created_body["matches"] == [], "created failed question matches must be empty")
+
+            researched = client.post(f"/questions/{old_question['id']}/research", json={"document_ids": None})
+            require_status(researched, 200)
+            researched_body = researched.json()
+            require(researched_body["id"] == old_question["id"], "research embedding failure changed question id")
+            require(researched_body["status"] == "failed", "research question did not fail on embedding error")
+            require(researched_body["failure_code"] == "embedding_failed", "research question failure_code mismatch")
+            require(researched_body["failure_reason"] == "题目向量生成失败", "research question failure_reason mismatch")
+            require(researched_body["matches"] == [], "research failed question matches must be empty")
+        finally:
+            object.__setattr__(settings, "dashscope_api_key", original_key)
+
+        with connect() as conn:
+            old_match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE id = %s", (old_match["id"],)).fetchone()["value"]
+            old_question_times = conn.execute("SELECT last_search_at, updated_at FROM questions WHERE id = %s", (old_question["id"],)).fetchone()
+            project_updated_at = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project_id,)).fetchone()["updated_at"]
+        require(old_match_count == 0, "research embedding failure kept stale question_match")
+        require(str(old_question_times["last_search_at"]) > "2001-01-01", "research embedding failure did not update last_search_at")
+        require(old_question_times["updated_at"] == old_question_times["last_search_at"], "research embedding failure did not sync updated_at with last_search_at")
+        require(str(project_updated_at) > "2001-01-01", "question embedding failure did not update project updated_at")
+    finally:
+        delete_project_records([project_id])
+
+
 def check_stale_source() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -1303,6 +1399,7 @@ def main() -> None:
         "v020-question-history-api": check_question_history_api,
         "v020-question-detail-api": check_question_detail_api,
         "v020-question-research-scope-errors": check_question_research_scope_errors,
+        "v020-question-embedding-failure-api": check_question_embedding_failure_api,
         "v020-stale-source": check_stale_source,
     }
     if check not in checks:
