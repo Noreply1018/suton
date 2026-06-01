@@ -84,6 +84,15 @@ function seedSourceReader() {
   return JSON.parse(output) as SourceReaderSeed;
 }
 
+function seedSourceFileMissing() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_source_file_missing.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as SourceReaderSeed;
+}
+
 async function expectDetailItem(page: Page, testId: string, label: string, value: string) {
   const item = page.getByTestId(`document-detail-${testId}`);
   await expect(item).toContainText(label);
@@ -415,6 +424,26 @@ test("v020-source-reader-switch：切换来源原地替换 PDF 页和段落详�
   );
   await expect(reader.getByRole("button", { name: "下一页" })).toBeDisabled();
   await expect(reader.getByRole("button", { name: "回到命中页" })).toBeDisabled();
+});
+
+test("v020-source-reader-file-missing：PDF 文件缺失展示固定错误状态", async ({ page }) => {
+  const seed = seedSourceFileMissing();
+  await page.goto(`/?questionId=${seed.question_id}`);
+  await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+  await expect(page.getByTestId("source-card").first()).toContainText("source-reader-missing.pdf 第 1 页");
+
+  await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader-missing\.pdf/ }).click();
+
+  const errorState = page.getByTestId("source-reader-error");
+  await expect(errorState).toBeVisible();
+  await expect(errorState).toContainText("资料文件不存在");
+  await expect(errorState).toContainText("无法打开原 PDF 文件。");
+  await expect(page.getByTestId("source-reader")).toHaveCount(0);
+  await expect(page.getByTestId("source-reader-pdf")).toHaveCount(0);
+
+  const fileResponse = await page.request.get(`${apiUrl}/documents/${seed.document_id}/file`);
+  expect(fileResponse.status()).toBe(404);
+  expect(await fileResponse.json()).toEqual({ detail: "资料文件不存在" });
 });
 
 test("question-input：无资料时提交题目被拦截", async ({ page }) => {

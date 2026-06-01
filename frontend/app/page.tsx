@@ -421,6 +421,11 @@ export default function Home() {
       if (document.page_count === null) {
         throw new Error("资料页数缺失");
       }
+      const pdfResponse = await fetch(`${apiUrl}${detail.pdf_url}`);
+      if (!pdfResponse.ok) {
+        const body = await pdfResponse.json().catch(() => ({ detail: pdfResponse.statusText }));
+        throw new Error(body.detail ?? pdfResponse.statusText);
+      }
       setSourceDetail({ ...detail, page_count: document.page_count });
       setCurrentSourcePage(detail.page_no);
     } catch (err) {
