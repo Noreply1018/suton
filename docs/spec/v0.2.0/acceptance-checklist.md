@@ -15,7 +15,7 @@
 - 页面不使用廉价渐变、厚重暗色、花哨紫蓝、卡片堆叠、默认模板感。
 - 前端参考成熟产品的信息密度、留白、排版、导航和状态处理方法，但没有复制特定产品的布局、文案、图标组合、品牌元素或可识别视觉资产。
 - 主要布局为固定工作台，不因列表内容无限拉长整页。
-- 主要页面在 1440px、1280px、1024px、390px 宽度下截图无明显错位、遮挡、溢出。
+- 主要页面在 1440x900、1280x832、1200x800、1024x768、390x844 viewport 下截图和 DOM 检查无横向滚动、文本溢出、按钮溢出、关键区域重叠、空白主体或浏览器级无限纵向滚动。
 - 空状态、加载状态、失败状态、无可靠来源状态均经过设计。
 - 首次空项目展示简洁工作台空态，主行动为“添加第一份课程资料”。
 - 桌面端提供一键专注模式，入口固定在当前题目工具栏右侧；进入后只保留当前题目、来源结果和 PDF 阅读，退出后上下文不丢失。
@@ -66,8 +66,9 @@
 ## 7. 验证与发布
 
 - `make env-info` 通过并保留输出。
-- `make reset-demo`、`make migrate`、`make verify-e2e`、`make test` 通过。
+- `make reset-demo`、`make migrate`、`make verify-e2e SCENARIO=v020-full-regression`、`make test` 通过。
+- `make verify-api-contract CHECK=v020-model-api`、`make verify-db CHECK=v020-schema`、`make verify-visual CHECK=screenshot-matrix`、`make verify-visual CHECK=visual-hard-errors`、`make verify-visual CHECK=visual-evidence-manifest` 和 `make verify-visual CHECK=aesthetic-audit-record` 均为真实验证并通过。
 - `make verify-spec` 和 `make verify-secrets` 通过；`make verify-spec` 必须覆盖 v0.2.0 spec 结构检查。
-- 视觉截图和人工审美审计记录已归档。
+- 执行 `make evidence-package-with-tests` 后，视觉截图、manifest、人工审美审计记录和 `tmp/v0.2.0-evidence-latest.md` 已归档，且不包含 secret。
 - 修改已追踪文件后已完成 subagent 严格审计。
 - 审计通过后已提交 Git commit。
