@@ -97,6 +97,15 @@ async function createProject(page: Page, prefix: string) {
   return name;
 }
 
+async function projectIdByName(page: Page, name: string) {
+  const response = await page.request.get(`${apiUrl}/projects`);
+  expect(response.ok()).toBeTruthy();
+  const projects = (await response.json()) as Project[];
+  const project = projects.find((item) => item.name === name);
+  if (!project) throw new Error(`project not found: ${name}`);
+  return project.id;
+}
+
 async function openProjectAction(page: Page, action: "重命名" | "删除项目") {
   await page.getByRole("button", { name: "项目操作" }).click();
   await page.getByTestId("trace-workspace").getByRole("button", { name: action, exact: true }).click();
@@ -256,6 +265,26 @@ async function uploadMaterial(page: Page) {
   await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
   await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toBeVisible();
   await expect(page.getByTestId("document-status").filter({ hasText: "完成" })).toBeVisible({ timeout: 90_000 });
+}
+
+async function installIndeterminateUploadProbe(page: Page) {
+  await page.addInitScript(() => {
+    const originalSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function patchedSend(body?: Document | XMLHttpRequestBodyInit | null) {
+      const xhr = this;
+      if (typeof xhr.responseURL === "string" && xhr.responseURL.includes("/documents")) {
+        return originalSend.call(xhr, body);
+      }
+      if (body instanceof FormData && Array.from(body.keys()).includes("file")) {
+        setTimeout(() => {
+          xhr.upload.dispatchEvent(new ProgressEvent("progress", { lengthComputable: false, loaded: 4096, total: 0 }));
+        }, 0);
+        setTimeout(() => originalSend.call(xhr, body), 800);
+        return;
+      }
+      return originalSend.call(xhr, body);
+    };
+  });
 }
 
 test("project-validation：空项目名被拦截", async ({ page }) => {
@@ -1378,6 +1407,79 @@ test("visual-long-lists：生成长列表布局截图", async ({ page }) => {
     }
   } finally {
     for (const projectId of seed.project_ids) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    }
+  }
+});
+
+test("v020-upload-indeterminate-progress：上传字节不可计算时展示非百分比流动线", async ({ page }) => {
+  await installIndeterminateUploadProbe(page);
+  let projectId: number | null = null;
+  try {
+    await page.goto("/");
+    const projectName = await createProject(page, "非百分比上传项目");
+    projectId = await projectIdByName(page, projectName);
+
+    await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
+    const progressCard = page.getByTestId("upload-progress-card");
+    await expect(progressCard).toBeVisible();
+    await expect(progressCard).toHaveAttribute("data-progress-mode", "indeterminate");
+    await expect(page.getByTestId("upload-paper-thumbnail")).toHaveCSS("width", "32px");
+    await expect(page.getByTestId("upload-paper-thumbnail")).toHaveCSS("height", "42px");
+    await expect(page.getByTestId("upload-progress-filename")).toContainText("text-layer-material.pdf");
+    const fillRatio = await page.evaluate(() => {
+      const line = document.querySelector<HTMLElement>("[data-testid='upload-progress-line']");
+      const fill = document.querySelector<HTMLElement>("[data-testid='upload-progress-fill']");
+      if (!line || !fill) return 0;
+      return fill.getBoundingClientRect().width / line.getBoundingClientRect().width;
+    });
+    expect(fillRatio).toBeGreaterThan(0.39);
+    expect(fillRatio).toBeLessThan(0.41);
+    await expect(progressCard).not.toContainText("%");
+    await expect(progressCard).not.toContainText("剩余");
+    await expect(progressCard).not.toContainText("速度");
+    await expect(page.getByTestId("document-list").locator("[data-testid^='document-row-']")).toHaveCount(0);
+    await expect(page.getByTestId("processing-stage-node-uploaded")).toHaveCount(0);
+
+    await expect(progressCard).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toBeVisible();
+    await expect(page.getByTestId("document-list").locator("[data-testid^='document-row-']")).toHaveCount(1);
+  } finally {
+    if (projectId) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    }
+  }
+});
+
+test("visual-upload-indeterminate-progress：生成非百分比上传流动线截图", async ({ page }) => {
+  await installIndeterminateUploadProbe(page);
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const screenshotPath = resolve(evidenceDir, "1440x900-upload-indeterminate-progress.png");
+  mkdirSync(evidenceDir, { recursive: true });
+  let projectId: number | null = null;
+
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    const projectName = await createProject(page, "非百分比上传截图项目");
+    projectId = await projectIdByName(page, projectName);
+    await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
+
+    const progressCard = page.getByTestId("upload-progress-card");
+    await expect(progressCard).toBeVisible();
+    await expect(progressCard).toHaveAttribute("data-progress-mode", "indeterminate");
+    await expect(progressCard).not.toContainText("%");
+    await expect(progressCard).not.toContainText("剩余");
+    await expect(progressCard).not.toContainText("速度");
+
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  } finally {
+    if (projectId) {
       const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
       expect([200, 404]).toContain(deleteResponse.status());
     }

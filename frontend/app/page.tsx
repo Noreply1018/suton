@@ -103,6 +103,12 @@ type SourceDetail = Match & {
   page_count: number;
 };
 
+type UploadProgressState = {
+  filename: string;
+  mode: "determinate" | "indeterminate";
+  progress: number;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
     ...options,
@@ -113,6 +119,41 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(body.detail ?? response.statusText);
   }
   return response.json();
+}
+
+function uploadDocument(projectId: number, file: File, onProgress: (progress: UploadProgressState) => void): Promise<DocumentRow> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${apiUrl}/projects/${projectId}/documents`);
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        const progress = Math.max(0, Math.min(1, event.loaded / event.total));
+        onProgress({ filename: file.name, mode: "determinate", progress });
+      } else {
+        onProgress({ filename: file.name, mode: "indeterminate", progress: 0 });
+      }
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText) as DocumentRow);
+        return;
+      }
+      let message = xhr.statusText || "上传失败";
+      try {
+        const body = JSON.parse(xhr.responseText) as { detail?: string };
+        message = body.detail ?? message;
+      } catch {
+        // Non-JSON upload failures use the status text.
+      }
+      reject(new Error(message));
+    });
+    xhr.addEventListener("error", () => reject(new Error("上传失败")));
+    xhr.addEventListener("abort", () => reject(new Error("上传已取消")));
+    xhr.send(formData);
+  });
 }
 
 export default function Home() {
@@ -137,6 +178,7 @@ export default function Home() {
   const [currentSourcePage, setCurrentSourcePage] = useState<number | null>(null);
   const [highlightedDocumentId, setHighlightedDocumentId] = useState<number | null>(null);
   const [materialIndexNotice, setMaterialIndexNotice] = useState("");
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null);
   const [pendingQuestionFocus, setPendingQuestionFocus] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [error, setError] = useState("");
@@ -430,12 +472,12 @@ export default function Home() {
     }
     if (!event.target.files?.[0]) return;
     setError("");
-    const formData = new FormData();
-    formData.append("file", event.target.files[0]);
+    const file = event.target.files[0];
     setBusy(true);
+    setUploadProgress({ filename: file.name, mode: "indeterminate", progress: 0 });
     const projectId = activeProject.id;
     try {
-      await request(`/projects/${projectId}/documents`, { method: "POST", body: formData });
+      await uploadDocument(projectId, file, setUploadProgress);
       if (activeProjectIdRef.current === projectId) {
         await refresh(projectId);
       }
@@ -443,6 +485,7 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "上传失败");
     } finally {
       event.target.value = "";
+      setUploadProgress(null);
       setBusy(false);
     }
   }
@@ -727,6 +770,7 @@ export default function Home() {
                   {materialIndexNotice}
                 </p>
               )}
+              {uploadProgress && <UploadProgressPreview progress={uploadProgress} />}
 
               <div className="max-h-[420px] divide-y divide-[#dce4d7] overflow-y-auto border-y border-[#dce4d7] pr-1 max-md:max-h-[280px]" data-testid="document-list">
                 {!activeProject ? (
@@ -1301,6 +1345,37 @@ function DocumentRowView({
           <Trash2 size={16} strokeWidth={1.75} />
           删除资料
         </button>
+      </div>
+    </div>
+  );
+}
+
+function UploadProgressPreview({ progress }: { progress: UploadProgressState }) {
+  const determinateWidth = `${Math.round(progress.progress * 100)}%`;
+  return (
+    <div
+      className="mb-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-y border-[#dce4d7] bg-[#fbfcf8] py-3"
+      data-progress-mode={progress.mode}
+      data-testid="upload-progress-card"
+    >
+      <div
+        className="relative h-[42px] w-8 overflow-hidden rounded-[3px] border border-[#ccd8c8] bg-[#fffefa] shadow-[0_6px_14px_rgba(49,95,67,0.08)]"
+        data-testid="upload-paper-thumbnail"
+      >
+        <span className="absolute right-0 top-0 h-3 w-3 border-b border-l border-[#dce4d7] bg-[#f2f6ec]" />
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-[#26382d]" data-testid="upload-progress-filename">
+          {progress.filename}
+        </p>
+        <div className="mt-2 h-0.5 overflow-hidden bg-[#dce4d7]" data-testid="upload-progress-line">
+          {progress.mode === "determinate" ? (
+            <div className="h-full bg-[#315f43]" data-testid="upload-progress-fill" style={{ width: determinateWidth }} />
+          ) : (
+            <div className="upload-progress-indeterminate h-full w-[40%] bg-[#315f43]" data-testid="upload-progress-fill" />
+          )}
+        </div>
+        <p className="mt-2 text-xs text-[#516050]">正在传输，等待浏览器上传字节进度。</p>
       </div>
     </div>
   );

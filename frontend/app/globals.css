@@ -79,6 +79,20 @@ textarea {
   padding: 16px 0;
 }
 
+.upload-progress-indeterminate {
+  animation: upload-progress-flow 1200ms linear infinite;
+}
+
+@keyframes upload-progress-flow {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
 .workspace-grid {
   display: grid;
   min-height: 100dvh;
