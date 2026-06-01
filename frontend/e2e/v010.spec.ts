@@ -70,6 +70,15 @@ type QuestionHistoryLongTextSeed = {
   question_ids: number[];
 };
 
+type NoSourceActionsSeed = {
+  project_id: number;
+  project_name: string;
+  question_id: number;
+  question_text: string;
+  searchable_document_id: number;
+  unavailable_document_id: number;
+};
+
 async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByRole("button", { name: "新建项目" }).click();
@@ -163,6 +172,15 @@ function seedQuestionHistoryLongText() {
     encoding: "utf-8"
   }).trim();
   return JSON.parse(output) as QuestionHistoryLongTextSeed;
+}
+
+function seedNoSourceActions() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_no_source_actions.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as NoSourceActionsSeed;
 }
 
 async function expectDetailItem(page: Page, testId: string, label: string, value: string) {
@@ -933,7 +951,7 @@ test("v020-question-history-long-text：长题干历史列表不撑开页面", a
 
     await page.getByTestId("question-history-item").first().click();
     await expect(page.getByTestId("question-history-item").first()).toHaveAttribute("aria-current", "true");
-    await expect(page.getByTestId("evidence-preview")).toContainText("没有匹配资料。系统不会生成无来源答案。");
+    await expect(page.getByTestId("evidence-preview")).toContainText("未找到可靠来源");
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());
@@ -971,6 +989,71 @@ test("visual-question-history-long-text：生成长题干历史布局截图", as
       expect(hardErrors.overflow).toBeLessThanOrEqual(1);
       expect(hardErrors.listHasInternalScroll).toBe(true);
       expect(hardErrors.maxItemHeight).toBeLessThanOrEqual(112);
+    }
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("v020-no-source-actions：无可靠来源状态提供三个行动入口", async ({ page }) => {
+  const seed = seedNoSourceActions();
+  try {
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+    const actions = page.getByTestId("no-source-actions");
+    await expect(actions).toBeVisible();
+    await expect(actions).toContainText("未找到可靠来源");
+    await expect(actions).toContainText("当前资料中没有达到可信阈值的来源片段。");
+    await expect(actions.getByRole("button", { name: /扩大资料范围/ })).toBeVisible();
+    await expect(actions.getByRole("button", { name: /检查资料索引/ })).toContainText("no-source-scanned.pdf");
+    await expect(actions.getByRole("button", { name: /修改题目表述/ })).toBeVisible();
+
+    await actions.getByRole("button", { name: /扩大资料范围/ }).click();
+    await expect(page.getByTestId("document-scope-selector").getByRole("button", { name: "指定资料" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("document-scope-list")).toBeVisible();
+    await expect(page.getByTestId(`document-scope-option-${seed.unavailable_document_id}`)).toContainText("不可检索");
+
+    await actions.getByRole("button", { name: /检查资料索引/ }).click();
+    const unavailableRow = page.getByTestId(`document-row-${seed.unavailable_document_id}`);
+    await expect(unavailableRow).toBeVisible();
+    await expect(unavailableRow).toContainText("no-source-scanned.pdf");
+    await expect(unavailableRow).toContainText("PDF 无可提取文字层，v0.2.0 不进入 OCR");
+    await expect(unavailableRow).toHaveClass(/ring-\[\#d9b86f\]/);
+    await expect(page.getByTestId("document-detail")).toContainText("no-source-scanned.pdf");
+
+    await actions.getByRole("button", { name: /修改题目表述/ }).click();
+    await expect(page.getByTestId("question-text")).toHaveValue(seed.question_text);
+    const activeElementId = await page.evaluate(() => document.activeElement?.id);
+    expect(activeElementId).toBe("question");
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("visual-no-source-actions：生成无可靠来源行动入口截图", async ({ page }) => {
+  const seed = seedNoSourceActions();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const desktopScreenshotPath = resolve(evidenceDir, "1440x900-no-source-actions.png");
+  const mobileScreenshotPath = resolve(evidenceDir, "390x844-no-source-actions.png");
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    for (const viewport of [
+      { width: 1440, height: 900, screenshotPath: desktopScreenshotPath },
+      { width: 390, height: 844, screenshotPath: mobileScreenshotPath }
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto(`/?questionId=${seed.question_id}`);
+      await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+      await expect(page.getByTestId("no-source-actions")).toBeVisible();
+      await expect(page.getByTestId("no-source-actions").getByRole("button")).toHaveCount(3);
+      await page.screenshot({ path: viewport.screenshotPath, fullPage: true });
+      expect(statSync(viewport.screenshotPath).size).toBeGreaterThan(1000);
+
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
     }
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);

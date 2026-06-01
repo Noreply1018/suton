@@ -133,10 +133,14 @@ export default function Home() {
   const [sourceDetailError, setSourceDetailError] = useState("");
   const [sourceReaderOpen, setSourceReaderOpen] = useState(false);
   const [currentSourcePage, setCurrentSourcePage] = useState<number | null>(null);
+  const [highlightedDocumentId, setHighlightedDocumentId] = useState<number | null>(null);
+  const [materialIndexNotice, setMaterialIndexNotice] = useState("");
+  const [pendingQuestionFocus, setPendingQuestionFocus] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const activeProjectIdRef = useRef<number | null>(null);
   const documentFileInputRef = useRef<HTMLInputElement>(null);
+  const questionInputRef = useRef<HTMLTextAreaElement>(null);
   const refreshSeqRef = useRef(0);
 
   const activeProject = useMemo(
@@ -144,6 +148,10 @@ export default function Home() {
     [activeProjectId, projects]
   );
   const sourcedMatches = useMemo(() => result?.matches.filter(hasSource) ?? [], [result]);
+  const firstUnavailableDocument = useMemo(
+    () => documents.find((document) => document.status !== "completed" || !document.searchable) ?? null,
+    [documents]
+  );
   const completedDocuments = documents.filter((document) => document.status === "completed").length;
   const selectedScopeIds = useMemo(
     () => documents.filter((document) => selectedDocumentIds.includes(document.id)).map((document) => document.id),
@@ -166,6 +174,8 @@ export default function Home() {
     setSourceDetailError("");
     setSourceReaderOpen(false);
     setCurrentSourcePage(null);
+    setHighlightedDocumentId(null);
+    setMaterialIndexNotice("");
   }, [result?.id]);
 
   useEffect(() => {
@@ -178,6 +188,12 @@ export default function Home() {
     setScopeMode("all");
     setSelectedDocumentIds([]);
   }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!pendingQuestionFocus) return;
+    questionInputRef.current?.focus();
+    setPendingQuestionFocus(false);
+  }, [pendingQuestionFocus, question]);
 
   async function refresh(preferredProjectId?: number) {
     const requestSeq = ++refreshSeqRef.current;
@@ -236,6 +252,8 @@ export default function Home() {
     setSourceReaderOpen(false);
     setCurrentSourcePage(null);
     setSelectedDocument(null);
+    setHighlightedDocumentId(null);
+    setMaterialIndexNotice("");
     setQuestionHistory([]);
     setError("");
     const [nextDocuments, nextQuestionHistory] = await Promise.all([
@@ -460,6 +478,35 @@ export default function Home() {
     );
   }
 
+  function scrollToTestId(testId: string) {
+    window.requestAnimationFrame(() => {
+      document.querySelector(`[data-testid="${testId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
+  function openScopeFromNoSource() {
+    if (result) setQuestion(result.text);
+    setScopeMode("selected");
+    scrollToTestId("document-scope-selector");
+  }
+
+  function highlightUnavailableMaterial() {
+    if (!firstUnavailableDocument) {
+      setMaterialIndexNotice("当前资料均可检索，请上传更多相关资料或修改题目表述");
+      scrollToTestId("material-library");
+      return;
+    }
+    setMaterialIndexNotice("");
+    setSelectedDocument(firstUnavailableDocument);
+    setHighlightedDocumentId(firstUnavailableDocument.id);
+    scrollToTestId(`document-row-${firstUnavailableDocument.id}`);
+  }
+
+  function restoreNoSourceQuestion() {
+    if (result) setQuestion(result.text);
+    setPendingQuestionFocus(true);
+  }
+
   async function openSourceDetail(match: Match) {
     if (!result) return;
     setSourceDetailError("");
@@ -649,6 +696,11 @@ export default function Home() {
               <p id="document-upload-note" className="sr-only">
                 请先创建项目，再上传 PDF 资料。
               </p>
+              {materialIndexNotice && (
+                <p className="mb-3 rounded-md border border-[#d5c9aa] bg-[#fffaf0] px-3 py-2 text-sm text-[#6d6042]" data-testid="material-index-notice">
+                  {materialIndexNotice}
+                </p>
+              )}
 
               <div className="divide-y divide-[#dce4d7] border-y border-[#dce4d7]">
                 {!activeProject ? (
@@ -661,6 +713,7 @@ export default function Home() {
                       key={document.id}
                       document={document}
                       selected={selectedDocument?.id === document.id}
+                      highlighted={highlightedDocumentId === document.id}
                       onSelect={setSelectedDocument}
                       onDelete={openDeleteDocumentDialog}
                       onReprocess={reprocessDocument}
@@ -689,6 +742,7 @@ export default function Home() {
                 </label>
                 <textarea
                   id="question"
+                  ref={questionInputRef}
                   data-testid="question-text"
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
@@ -742,6 +796,13 @@ export default function Home() {
 
           {!result ? (
             <EmptyResults>输入题目后，这里展示带文件、页码、片段和 PDF 入口的来源结果。</EmptyResults>
+          ) : sourcedMatches.length === 0 && result.status === "no_reliable_source" ? (
+            <NoReliableSourceActions
+              unavailableDocument={firstUnavailableDocument}
+              onOpenScope={openScopeFromNoSource}
+              onHighlightMaterial={highlightUnavailableMaterial}
+              onRestoreQuestion={restoreNoSourceQuestion}
+            />
           ) : sourcedMatches.length === 0 ? (
             <EmptyResults>没有匹配资料。系统不会生成无来源答案。</EmptyResults>
           ) : (
@@ -1108,19 +1169,24 @@ function DocumentScopeSelector({
 function DocumentRowView({
   document,
   selected,
+  highlighted,
   onSelect,
   onDelete,
   onReprocess
 }: {
   document: DocumentRow;
   selected: boolean;
+  highlighted: boolean;
   onSelect: (document: DocumentRow) => void;
   onDelete: (document: DocumentRow) => void;
   onReprocess: (document: DocumentRow) => void;
 }) {
   const failed = isFailedDocument(document);
   return (
-    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4" data-testid={`document-row-${document.id}`}>
+    <div
+      className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4 ${highlighted ? "rounded-md bg-[#fff8e6] ring-2 ring-[#d9b86f]" : ""}`}
+      data-testid={`document-row-${document.id}`}
+    >
       <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-md bg-[#e5efe0] text-[#315f43]">
         <FileText size={18} strokeWidth={1.75} />
       </div>
@@ -1516,6 +1582,67 @@ function ConfidencePill({ label }: { label: string }) {
     >
       {label}
     </span>
+  );
+}
+
+function NoReliableSourceActions({
+  unavailableDocument,
+  onOpenScope,
+  onHighlightMaterial,
+  onRestoreQuestion
+}: {
+  unavailableDocument: DocumentRow | null;
+  onOpenScope: () => void;
+  onHighlightMaterial: () => void;
+  onRestoreQuestion: () => void;
+}) {
+  return (
+    <section className="border-y border-[#dce4d7] py-5" data-testid="no-source-actions">
+      <div className="mb-4 flex items-start gap-3 rounded-md border border-[#d5c9aa] bg-[#fffaf0] px-4 py-3 text-[#4e452f]">
+        <AlertCircle size={18} strokeWidth={1.75} className="mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-[#2f3d2e]">未找到可靠来源</p>
+          <p className="mt-1 text-xs leading-5 text-[#6d6042]">当前资料中没有达到可信阈值的来源片段。</p>
+        </div>
+      </div>
+      <div className="grid gap-2">
+        <button
+          type="button"
+          onClick={onOpenScope}
+          className="focus-ring flex w-full items-center gap-3 rounded-md border border-[#c8d8c7] bg-[#fbfcf8] px-3 py-3 text-left text-sm text-[#26382d] hover:bg-[#f8fbf4]"
+        >
+          <Search size={16} strokeWidth={1.75} className="shrink-0 text-[#315f43]" />
+          <span className="min-w-0">
+            <span className="block font-semibold">扩大资料范围</span>
+            <span className="mt-1 block text-xs text-[#516050]">打开指定资料列表，重新选择可检索资料。</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onHighlightMaterial}
+          className="focus-ring flex w-full items-center gap-3 rounded-md border border-[#c8d8c7] bg-[#fbfcf8] px-3 py-3 text-left text-sm text-[#26382d] hover:bg-[#f8fbf4]"
+        >
+          <Library size={16} strokeWidth={1.75} className="shrink-0 text-[#315f43]" />
+          <span className="min-w-0">
+            <span className="block font-semibold">检查资料索引</span>
+            <span className="mt-1 block truncate text-xs text-[#516050]">
+              {unavailableDocument ? `定位 ${unavailableDocument.filename}` : "当前资料均可检索。"}
+            </span>
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onRestoreQuestion}
+          className="focus-ring flex w-full items-center gap-3 rounded-md border border-[#c8d8c7] bg-[#fbfcf8] px-3 py-3 text-left text-sm text-[#26382d] hover:bg-[#f8fbf4]"
+        >
+          <Pencil size={16} strokeWidth={1.75} className="shrink-0 text-[#315f43]" />
+          <span className="min-w-0">
+            <span className="block font-semibold">修改题目表述</span>
+            <span className="mt-1 block text-xs text-[#516050]">保留原题文本并聚焦输入框。</span>
+          </span>
+        </button>
+      </div>
+    </section>
   );
 }
 
