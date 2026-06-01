@@ -6,7 +6,7 @@ import runpy
 import time
 
 from app.db import connect, vector_literal
-from app.processing import confidence_level_for_score
+from app.processing import confidence_level_for_score, document_searchable_for_fields, text_quality_for_counts
 
 migrated_project_name = runpy.run_path("scripts/migrate.py")["migrated_project_name"]
 
@@ -431,6 +431,92 @@ def check_v020_project_name_migration() -> None:
     require(missing_workspace == 0, "migrated projects are missing workspace_id or updated_at")
 
 
+def check_v020_document_health_fields() -> None:
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    cases = [
+        ("good", 10, 10, 2, "completed"),
+        ("fair", 10, 5, 2, "completed"),
+        ("poor", 10, 4, 2, "completed"),
+        ("unsearchable", 10, 0, 0, "completed"),
+        ("zero-page", 0, 0, 0, "completed"),
+        ("no-chunks", 10, 10, 0, "completed"),
+        ("processing", 10, 10, 2, "processing"),
+    ]
+    with connect() as conn:
+        project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-document-health-{suffix}",)).fetchone()
+        for label, page_count, extractable_page_count, chunk_count, status in cases:
+            text_quality = text_quality_for_counts(extractable_page_count, page_count)
+            searchable = document_searchable_for_fields(status, chunk_count, text_quality)
+            conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
+                )
+                VALUES (%s, %s, 'application/pdf', %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    project["id"],
+                    f"{label}.pdf",
+                    f"uploads/{label}.pdf",
+                    page_count,
+                    extractable_page_count,
+                    chunk_count,
+                    text_quality,
+                    searchable,
+                    status,
+                    "completed" if status == "completed" else "embedding",
+                ),
+            )
+        conn.commit()
+        fixture_rows = conn.execute(
+            """
+            SELECT filename, page_count, extractable_page_count, chunk_count, text_quality, searchable, status
+            FROM documents
+            WHERE project_id = %s
+            ORDER BY id
+            """,
+            (project["id"],),
+        ).fetchall()
+        conn.execute("DELETE FROM projects WHERE id = %s", (project["id"],))
+        conn.commit()
+
+        invalid_documents = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM documents
+            WHERE extractable_page_count > COALESCE(page_count, 0)
+               OR text_quality <> CASE
+                 WHEN COALESCE(page_count, 0) <= 0 OR extractable_page_count = 0 THEN 'unsearchable'
+                 WHEN extractable_page_count::double precision / page_count >= 0.90 THEN 'good'
+                 WHEN extractable_page_count::double precision / page_count >= 0.50 THEN 'fair'
+                 ELSE 'poor'
+               END
+               OR searchable <> (
+                 status = 'completed'
+                 AND chunk_count > 0
+                 AND text_quality <> 'unsearchable'
+               )
+            """
+        ).fetchone()["value"]
+
+    require(len(fixture_rows) == len(cases), "document health fixture row count mismatch")
+    expected_by_filename = {
+        f"{label}.pdf": (
+            text_quality_for_counts(extractable_page_count, page_count),
+            document_searchable_for_fields(status, chunk_count, text_quality_for_counts(extractable_page_count, page_count)),
+        )
+        for label, page_count, extractable_page_count, chunk_count, status in cases
+    }
+    for row in fixture_rows:
+        expected_quality, expected_searchable = expected_by_filename[row["filename"]]
+        require(row["text_quality"] == expected_quality, f"document text_quality mismatch for {row['filename']}")
+        require(row["searchable"] is expected_searchable, f"document searchable mismatch for {row['filename']}")
+        require(row["extractable_page_count"] <= row["page_count"], f"extractable pages exceed page_count for {row['filename']}")
+    require(invalid_documents == 0, "document health fields are inconsistent")
+
+
 def check_project_created() -> None:
     name = os.getenv("PROJECT_NAME", "高等数学（上）期末复习")
     require(scalar("SELECT COUNT(*) AS value FROM projects WHERE name = %s", (name,)) > 0, "project not found")
@@ -756,6 +842,8 @@ def main() -> None:
         "schema-v0.1.0": check_schema,
         "v020-schema": check_v020_schema,
         "v020-project-name-migration": check_v020_project_name_migration,
+        "v020-document-health": check_v020_document_health_fields,
+        "v020-document-health-fields": check_v020_document_health_fields,
         "project-created": check_project_created,
         "project-summary": check_project_summary,
         "project-count-unchanged": check_project_count_unchanged,

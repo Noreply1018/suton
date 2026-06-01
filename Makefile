@@ -108,6 +108,7 @@ v020-db-test:
 	CHECK=v020-schema $(MAKE) verify-db
 	CHECK=v020-confidence-levels $(MAKE) verify-db
 	CHECK=v020-project-name-migration $(MAKE) verify-db
+	CHECK=v020-document-health-fields $(MAKE) verify-db
 
 v020-api-test:
 	CHECK=v020-project-document-api $(MAKE) verify-api-contract

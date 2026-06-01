@@ -35,6 +35,10 @@ def text_quality_for_counts(extractable_page_count: int, page_count: int) -> str
     return "poor"
 
 
+def document_searchable_for_fields(status: str, chunk_count: int, text_quality: str) -> bool:
+    return status == "completed" and chunk_count > 0 and text_quality != "unsearchable"
+
+
 def normalize_page_text(text: str) -> str:
     return re.sub(r"[ \t]+", " ", text).strip()
 
@@ -168,7 +172,11 @@ def process_document(document_id: int) -> None:
                         len(normalized_pages),
                         len(all_chunks),
                         text_quality_for_counts(len(normalized_pages), total_page_count),
-                        bool(all_chunks) and text_quality_for_counts(len(normalized_pages), total_page_count) != "unsearchable",
+                        document_searchable_for_fields(
+                            "completed",
+                            len(all_chunks),
+                            text_quality_for_counts(len(normalized_pages), total_page_count),
+                        ),
                         document_id,
                     ),
                 )
