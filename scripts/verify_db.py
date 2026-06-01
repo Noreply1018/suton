@@ -841,6 +841,35 @@ def check_v020_project_hard_delete() -> None:
             path.unlink(missing_ok=True)
 
 
+def check_v020_delete_consistency() -> None:
+    check_v020_project_hard_delete()
+    check_v020_document_hard_delete()
+    with connect() as conn:
+        stale_matches = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM question_matches qm
+            LEFT JOIN chunks c ON c.id = qm.chunk_id
+            LEFT JOIN documents d ON d.id = qm.document_id
+            WHERE c.id IS NULL
+               OR d.id IS NULL
+               OR d.status <> 'completed'
+               OR d.searchable IS NOT TRUE
+            """
+        ).fetchone()["value"]
+        mismatched_matches = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM question_matches qm
+            JOIN chunks c ON c.id = qm.chunk_id
+            WHERE qm.document_id <> c.document_id
+               OR qm.page_no <> c.page_no
+            """
+        ).fetchone()["value"]
+    require(stale_matches == 0, "question_matches include stale or unavailable sources")
+    require(mismatched_matches == 0, "question_matches source denormalization is inconsistent after delete checks")
+
+
 def check_v020_source_detail_fields() -> None:
     from fastapi.testclient import TestClient
 
@@ -1388,6 +1417,7 @@ def main() -> None:
         "v020-document-health-fields": check_v020_document_health_fields,
         "v020-document-hard-delete": check_v020_document_hard_delete,
         "v020-project-hard-delete": check_v020_project_hard_delete,
+        "v020-delete-consistency": check_v020_delete_consistency,
         "v020-processing-failure-fields": check_v020_processing_failure_fields,
         "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,
