@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import runpy
+import shutil
 import time
 
 from app.config import settings
@@ -870,6 +871,42 @@ def check_v020_delete_consistency() -> None:
     require(mismatched_matches == 0, "question_matches source denormalization is inconsistent after delete checks")
 
 
+def check_v020_delete_trash_cleanup() -> None:
+    check_v020_delete_consistency()
+    upload_root = Path(settings.upload_dir).resolve()
+    trash_root = upload_root / ".delete-trash"
+    trash_root.mkdir(parents=True, exist_ok=True)
+    empty_residual = trash_root / f"document-0-{time.time_ns()}"
+    empty_residual.mkdir()
+    cleanup_delete_trash(trash_root)
+    require(not empty_residual.exists(), "empty delete trash operation directory was not cleaned")
+    leftovers = [path for path in trash_root.iterdir() if path.name != ".gitkeep"] if trash_root.exists() else []
+    require(not leftovers, f"delete trash contains unexpected leftovers: {leftovers}")
+
+
+def cleanup_delete_trash(trash_root: Path) -> None:
+    if not trash_root.exists():
+        return
+    failures: list[str] = []
+    for entry in sorted(trash_root.iterdir()):
+        if entry.name == ".gitkeep":
+            continue
+        if not entry.is_dir() or not is_delete_operation_dir(entry.name):
+            failures.append(str(entry))
+            continue
+        files = [path for path in entry.rglob("*") if path.is_file()]
+        if files:
+            failures.extend(str(path) for path in files)
+            continue
+        shutil.rmtree(entry)
+    require(not failures, f"delete trash contains recoverable or untraceable leftovers: {failures}")
+
+
+def is_delete_operation_dir(name: str) -> bool:
+    parts = name.split("-")
+    return len(parts) == 3 and parts[0] in {"project", "document"} and parts[1].isdigit() and parts[2].isdigit()
+
+
 def check_v020_source_detail_fields() -> None:
     from fastapi.testclient import TestClient
 
@@ -1418,6 +1455,7 @@ def main() -> None:
         "v020-document-hard-delete": check_v020_document_hard_delete,
         "v020-project-hard-delete": check_v020_project_hard_delete,
         "v020-delete-consistency": check_v020_delete_consistency,
+        "v020-delete-trash-cleanup": check_v020_delete_trash_cleanup,
         "v020-processing-failure-fields": check_v020_processing_failure_fields,
         "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,

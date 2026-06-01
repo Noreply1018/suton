@@ -113,6 +113,7 @@ v020-db-test:
 	CHECK=v020-document-health-fields $(MAKE) verify-db
 	CHECK=v020-document-hard-delete $(MAKE) verify-db
 	CHECK=v020-delete-consistency $(MAKE) verify-db
+	CHECK=v020-delete-trash-cleanup $(MAKE) verify-db
 	CHECK=v020-processing-failure-fields $(MAKE) verify-db
 	CHECK=v020-source-detail-fields $(MAKE) verify-db
 
