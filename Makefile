@@ -11,7 +11,7 @@ export API_URL ?= http://127.0.0.1:8000
 export NEXT_PUBLIC_API_URL ?= http://127.0.0.1:8000
 export PYTHONPATH := backend
 
-.PHONY: env-info doctor reset-demo dev start docker-build docker-prod-up docker-prod-down migrate process-demo verify-db verify-api-contract verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test install
+.PHONY: env-info doctor reset-demo dev start docker-build docker-prod-up docker-prod-down migrate process-demo verify-db verify-api-contract verify-spec verify-secrets evidence-package evidence-package-with-tests verify-e2e test backend-test frontend-test v020-db-test install
 
 install:
 	uv sync --project backend
@@ -94,7 +94,7 @@ verify-e2e:
 	 uv run --project backend python scripts/wait_http.py http://127.0.0.1:8000/health http://127.0.0.1:3000 && \
 	 E2E_BASE_URL=http://127.0.0.1:3000 pnpm exec playwright test; status=$$?; cleanup; exit $$status)
 
-test: backend-test frontend-test verify-api-contract
+test: backend-test frontend-test v020-db-test verify-api-contract
 
 backend-test:
 	uv run --project backend pytest backend/tests scripts/tests
@@ -102,3 +102,8 @@ backend-test:
 frontend-test:
 	pnpm --filter @suton/web lint
 	pnpm --filter @suton/web typecheck
+
+v020-db-test:
+	$(MAKE) migrate
+	CHECK=v020-schema $(MAKE) verify-db
+	CHECK=v020-confidence-levels $(MAKE) verify-db

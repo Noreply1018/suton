@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import runpy
+import time
 
-from app.db import connect
+from app.db import connect, vector_literal
+from app.processing import confidence_level_for_score
 
 
 def require(condition: bool, message: str) -> None:
@@ -597,6 +599,98 @@ def check_no_question_matches() -> None:
     )
 
 
+def check_v020_confidence_levels() -> None:
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    query = [1.0, 0.0] + [0.0] * 1022
+    candidates = [
+        ("strong", [1.0, 0.0] + [0.0] * 1022),
+        ("reference", [0.60, 0.80] + [0.0] * 1022),
+        ("low", [0.45, 0.8930285549745876] + [0.0] * 1022),
+    ]
+    with connect() as conn:
+        project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-confidence-levels-{suffix}",)).fetchone()
+        document = conn.execute(
+            """
+            INSERT INTO documents (
+              project_id, filename, content_type, storage_path, page_count,
+              extractable_page_count, chunk_count, text_quality, searchable,
+              status, processing_stage
+            )
+            VALUES (%s, 'confidence.pdf', 'application/pdf', 'uploads/confidence.pdf', 1, 1, 3, 'good', true, 'completed', 'completed')
+            RETURNING id
+            """,
+            (project["id"],),
+        ).fetchone()
+        page_text = "strong reference low"
+        page = conn.execute(
+            """
+            INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+            VALUES (%s, 1, %s, %s, %s)
+            RETURNING id
+            """,
+            (document["id"], page_text, page_text, len(page_text)),
+        ).fetchone()
+        for expected_level, embedding in candidates:
+            start = page_text.index(expected_level)
+            conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-confidence-levels')
+                RETURNING id
+                """,
+                (document["id"], page["id"], expected_level, start, start + len(expected_level), vector_literal(embedding)),
+            )
+        question = conn.execute(
+            "INSERT INTO questions (project_id, text, status) VALUES (%s, 'confidence query', 'completed') RETURNING id",
+            (project["id"],),
+        ).fetchone()
+        rows = conn.execute(
+            """
+            SELECT id, text, 1 - (embedding <=> %s::vector) AS score
+            FROM chunks
+            WHERE document_id = %s
+            ORDER BY id
+            """,
+            (vector_literal(query), document["id"]),
+        ).fetchall()
+        for rank, row in enumerate(rows, start=1):
+            score = float(row["score"])
+            level = confidence_level_for_score(score)
+            conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, %s, %s, %s, 'v020 confidence level fixture', %s, '', '')
+                """,
+                (question["id"], row["id"], document["id"], score, rank, level, row["text"]),
+            )
+        conn.commit()
+        saved_rows = conn.execute(
+            """
+            SELECT c.text, qm.score, qm.confidence_level
+            FROM question_matches qm
+            JOIN chunks c ON c.id = qm.chunk_id
+            WHERE qm.question_id = %s
+            ORDER BY c.id
+            """,
+            (question["id"],),
+        ).fetchall()
+        conn.execute("DELETE FROM projects WHERE id = %s", (project["id"],))
+        conn.commit()
+    expected = {name: name for name, _ in candidates}
+    for row in saved_rows:
+        score = float(row["score"])
+        require(score >= 0.40, f"confidence fixture score below source threshold: {row['text']}={score}")
+        require(row["confidence_level"] == expected[row["text"]], f"confidence level mismatch for {row['text']}: {row['confidence_level']}")
+        require(row["confidence_level"] == confidence_level_for_score(score), f"confidence helper mismatch for {row['text']}: {score}")
+    require(len(saved_rows) == 3, "confidence level fixture did not create three matches")
+
+
 def main() -> None:
     check = os.getenv("CHECK", "schema-v0.1.0")
     checks = {
@@ -620,6 +714,7 @@ def main() -> None:
         "seed-match-missing-source": seed_match_missing_source,
         "missing-source-not-visible": check_missing_source_not_visible,
         "no-question-matches": check_no_question_matches,
+        "v020-confidence-levels": check_v020_confidence_levels,
     }
     if check not in checks:
         raise SystemExit(f"unsupported CHECK={check}")

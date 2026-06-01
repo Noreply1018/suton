@@ -16,6 +16,14 @@ MIN_MATCH_SCORE = 0.40
 CONTEXT_CHARS = 300
 
 
+def confidence_level_for_score(score: float) -> str:
+    if score >= 0.72:
+        return "strong"
+    if score >= 0.55:
+        return "reference"
+    return "low"
+
+
 def text_quality_for_counts(extractable_page_count: int, page_count: int) -> str:
     if page_count <= 0 or extractable_page_count <= 0:
         return "unsearchable"
@@ -269,7 +277,7 @@ def search_question(project_id: int, text: str) -> int:
                 return question_id
         for rank, row in enumerate(rows, start=1):
             score = float(row["score"])
-            confidence_level = "strong" if score >= 0.72 else "reference" if score >= 0.55 else "low"
+            confidence_level = confidence_level_for_score(score)
             source_text = row["source_text"].strip()
             normalized_text = row["normalized_text"]
             start = int(row["page_start_char"])
