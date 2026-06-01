@@ -707,6 +707,52 @@ def check_document_scope_disabled() -> None:
         delete_project_records([project_id])
 
 
+def check_pdf_file_api() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    fixture_path = Path("tests/fixtures/text-layer-material.pdf")
+    require(fixture_path.is_file(), "fixed PDF fixture missing: tests/fixtures/text-layer-material.pdf")
+    pdf_bytes = fixture_path.read_bytes()
+    project_id: int | None = None
+    try:
+        project_id = create_project_record(f"PDF文件接口-{suffix}")
+        upload_root = Path(settings.upload_dir)
+        document_id = create_document_record(
+            project_id,
+            filename=fixture_path.name,
+            storage_path=str(fixture_path),
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        missing_file_id = create_document_record(
+            project_id,
+            filename=f"missing-pdf-file-{suffix}.pdf",
+            storage_path=str(upload_root / f"missing-pdf-file-api-{suffix}.pdf"),
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+
+        missing_document = client.get("/documents/999999999/file")
+        require_status(missing_document, 404, "资料不存在")
+        missing_file = client.get(f"/documents/{missing_file_id}/file")
+        require_status(missing_file, 404, "资料文件不存在")
+
+        response = client.get(f"/documents/{document_id}/file")
+        require_status(response, 200)
+        require(response.headers["content-type"].startswith("application/pdf"), f"PDF file content-type mismatch: {response.headers!r}")
+        require(f'filename="{fixture_path.name}"' in response.headers.get("content-disposition", ""), "PDF file filename header mismatch")
+        require(response.content == pdf_bytes, "PDF file response body mismatch")
+    finally:
+        if project_id is not None:
+            delete_project_records([project_id])
+
+
 def check_question_scope_errors() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -1251,6 +1297,7 @@ def main() -> None:
         "v020-document-detail-fields": check_document_detail_fields,
         "v020-document-reprocess-api": check_document_reprocess_api,
         "v020-document-scope-disabled": check_document_scope_disabled,
+        "v020-pdf-file-api": check_pdf_file_api,
         "v020-project-name-limits": check_project_name_limits,
         "v020-question-scope-errors": check_question_scope_errors,
         "v020-question-history-api": check_question_history_api,
