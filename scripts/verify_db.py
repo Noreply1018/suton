@@ -517,6 +517,122 @@ def check_v020_document_health_fields() -> None:
     require(invalid_documents == 0, "document health fields are inconsistent")
 
 
+def check_v020_source_detail_fields() -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    page_text = "before source detail after"
+    source_text = "source detail"
+    source_start = page_text.index(source_text)
+    query = [1.0, 0.0] + [0.0] * 1022
+    with connect() as conn:
+        project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-source-detail-{suffix}",)).fetchone()
+        document = conn.execute(
+            """
+            INSERT INTO documents (
+              project_id, filename, content_type, storage_path, page_count,
+              extractable_page_count, chunk_count, text_quality, searchable,
+              status, processing_stage
+            )
+            VALUES (%s, 'source-detail.pdf', 'application/pdf', 'uploads/source-detail.pdf', 1, 1, 1, 'good', true, 'completed', 'completed')
+            RETURNING id
+            """,
+            (project["id"],),
+        ).fetchone()
+        page = conn.execute(
+            """
+            INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+            VALUES (%s, 1, %s, %s, %s)
+            RETURNING id
+            """,
+            (document["id"], page_text, page_text, len(page_text)),
+        ).fetchone()
+        chunk = conn.execute(
+            """
+            INSERT INTO chunks (
+              document_id, page_id, page_no, text, page_start_char, page_end_char,
+              embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+            )
+            VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-source-detail-fields')
+            RETURNING id
+            """,
+            (
+                document["id"],
+                page["id"],
+                source_text,
+                source_start,
+                source_start + len(source_text),
+                vector_literal(query),
+            ),
+        ).fetchone()
+        question = conn.execute(
+            "INSERT INTO questions (project_id, text, status) VALUES (%s, 'source detail query', 'completed') RETURNING id",
+            (project["id"],),
+        ).fetchone()
+        match = conn.execute(
+            """
+            INSERT INTO question_matches (
+              question_id, chunk_id, document_id, page_no, score, rank,
+              confidence_level, hit_reason, source_text, context_before, context_after
+            )
+            VALUES (%s, %s, %s, 1, 0.91, 1, 'strong', 'fixed source detail fixture', %s, 'before ', ' after')
+            RETURNING id
+            """,
+            (question["id"], chunk["id"], document["id"], source_text),
+        ).fetchone()
+        conn.commit()
+
+        client = TestClient(app)
+        detail = client.get(f"/questions/{question['id']}/matches/{match['id']}")
+        require(detail.status_code == 200, f"source detail expected HTTP 200, got {detail.status_code}: {detail.text}")
+        body = detail.json()
+        expected_fields = {
+            "id",
+            "question_id",
+            "document_id",
+            "document_filename",
+            "filename",
+            "page_no",
+            "chunk_id",
+            "score",
+            "rank",
+            "confidence_level",
+            "confidence_label",
+            "hit_reason",
+            "source_text",
+            "context_before",
+            "context_after",
+            "pdf_url",
+        }
+        require(set(body) == expected_fields, f"source detail fields mismatch: {sorted(body)}")
+        require(body["document_id"] == document["id"], "source detail document_id mismatch")
+        require(body["document_filename"] == "source-detail.pdf", "source detail document_filename mismatch")
+        require(body["filename"] == "source-detail.pdf", "source detail filename mismatch")
+        require(body["page_no"] == 1, "source detail page_no mismatch")
+        require(body["chunk_id"] == chunk["id"], "source detail chunk_id mismatch")
+        require(body["confidence_level"] == "strong", "source detail confidence_level mismatch")
+        require(body["confidence_label"] == "强相关", "source detail confidence_label mismatch")
+        require(body["source_text"] == source_text, "source detail source_text mismatch")
+        require(body["context_before"] == "before ", "source detail context_before mismatch")
+        require(body["context_after"] == " after", "source detail context_after mismatch")
+        require(body["pdf_url"] == f"/documents/{document['id']}/file#page=1", "source detail pdf_url mismatch")
+
+        question_detail = client.get(f"/questions/{question['id']}")
+        require(question_detail.status_code == 200, f"question detail expected HTTP 200, got {question_detail.status_code}: {question_detail.text}")
+        matches = question_detail.json()["matches"]
+        require(len(matches) == 1, "question detail source match count mismatch")
+        require(set(matches[0]) == expected_fields, f"question match fields mismatch: {sorted(matches[0])}")
+        require(matches[0]["confidence_label"] == "强相关", "question match confidence_label mismatch")
+
+        conn.execute("DELETE FROM projects WHERE id = %s", (project["id"],))
+        conn.commit()
+        stale = client.get(f"/questions/{question['id']}/matches/{match['id']}")
+        require(stale.status_code == 404, f"stale source expected HTTP 404, got {stale.status_code}: {stale.text}")
+        require(stale.json()["detail"] == "来源已失效", f"stale source detail mismatch: {stale.text}")
+
+
 def check_project_created() -> None:
     name = os.getenv("PROJECT_NAME", "高等数学（上）期末复习")
     require(scalar("SELECT COUNT(*) AS value FROM projects WHERE name = %s", (name,)) > 0, "project not found")
@@ -844,6 +960,7 @@ def main() -> None:
         "v020-project-name-migration": check_v020_project_name_migration,
         "v020-document-health": check_v020_document_health_fields,
         "v020-document-health-fields": check_v020_document_health_fields,
+        "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,
         "project-summary": check_project_summary,
         "project-count-unchanged": check_project_count_unchanged,

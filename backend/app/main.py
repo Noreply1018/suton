@@ -19,6 +19,11 @@ TEXT_QUALITY_LABELS = {
     "poor": "不足",
     "unsearchable": "不可检索",
 }
+CONFIDENCE_LABELS = {
+    "strong": "强相关",
+    "reference": "可参考",
+    "low": "低置信",
+}
 
 app.add_middleware(
     CORSMiddleware,
@@ -167,13 +172,19 @@ def get_question(question_id: int) -> dict:
             """
             SELECT
               qm.id,
+              qm.question_id,
+              qm.document_id,
+              d.filename AS document_filename,
+              c.id AS chunk_id,
+              qm.page_no,
               qm.rank,
               qm.score,
+              qm.confidence_level,
               qm.hit_reason,
               qm.source_text,
-              c.page_no,
+              qm.context_before,
+              qm.context_after,
               d.filename,
-              d.id AS document_id,
               '/documents/' || d.id || '/file#page=' || c.page_no AS pdf_url
             FROM question_matches qm
             JOIN chunks c ON c.id = qm.chunk_id
@@ -188,7 +199,43 @@ def get_question(question_id: int) -> dict:
             """,
             (question_id,),
         ).fetchall()
-        return {"question": question, "matches": matches}
+        return {"question": question, "matches": [match_response(row) for row in matches]}
+
+
+@app.get("/questions/{question_id}/matches/{match_id}")
+def get_question_match(question_id: int, match_id: int) -> dict:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT
+              qm.id,
+              qm.question_id,
+              qm.document_id,
+              d.filename AS document_filename,
+              d.filename,
+              c.id AS chunk_id,
+              qm.page_no,
+              qm.score,
+              qm.rank,
+              qm.confidence_level,
+              qm.hit_reason,
+              qm.source_text,
+              qm.context_before,
+              qm.context_after,
+              '/documents/' || d.id || '/file#page=' || qm.page_no AS pdf_url
+            FROM question_matches qm
+            JOIN chunks c ON c.id = qm.chunk_id
+            JOIN documents d ON d.id = qm.document_id
+            WHERE qm.question_id = %s
+              AND qm.id = %s
+              AND d.status = 'completed'
+              AND d.searchable = true
+            """,
+            (question_id, match_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="来源已失效")
+    return match_response(row)
 
 
 @app.get("/documents/{document_id}/file")
@@ -254,4 +301,10 @@ def document_select_sql(where_clause: str = "") -> str:
 def document_response(row: dict) -> dict:
     result = dict(row)
     result["text_quality_label"] = TEXT_QUALITY_LABELS[result["text_quality"]]
+    return result
+
+
+def match_response(row: dict) -> dict:
+    result = dict(row)
+    result["confidence_label"] = CONFIDENCE_LABELS[result["confidence_level"]]
     return result

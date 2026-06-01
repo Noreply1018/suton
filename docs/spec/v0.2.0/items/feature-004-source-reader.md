@@ -48,7 +48,7 @@
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
-| 打开来源详情 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、真实 PostgreSQL、Linux、Playwright 浏览器 | 已处理 `tests/fixtures/text-layer-material.pdf` 并检索 `tests/fixtures/question.txt` 得到来源结果 | 执行 `make verify-e2e SCENARIO=v020-source-reader-open` | PDF 跳转目标页，详情展示命中段落、上下文、相似度分数、排序位置和确定性命中原因 | 未验证 | 待补充 | 阻塞 |
+| 打开来源详情 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、真实 PostgreSQL、Linux、Playwright 浏览器 | 已处理 `tests/fixtures/text-layer-material.pdf` 并检索 `tests/fixtures/question.txt` 得到来源结果 | 执行 `make verify-e2e SCENARIO=v020-source-reader-open`；执行 `make verify-db CHECK=v020-source-detail-fields` | PDF 跳转目标页，详情展示命中段落、上下文、相似度分数、排序位置和确定性命中原因 | API/DB 字段检查已验证，E2E/PDF 阅读未验证 | `backend/app/main.py`、`scripts/verify_db.py`、本地命令输出 | 阻塞 |
 | 切换来源 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 至少存在两条来源结果 | 执行 `make verify-e2e SCENARIO=v020-source-reader-switch` | PDF 页和段落详情随选择更新 | 未验证 | 待补充 | 阻塞 |
 | PDF 失败状态 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、Linux、Playwright 浏览器 | 已通过测试场景构造文件缺失状态 | 执行 `make verify-e2e SCENARIO=v020-source-reader-file-missing` | 页面展示 `资料文件不存在` 错误状态，不伪造内容 | 未验证 | 待补充 | 阻塞 |
 | 页码导航 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实文件存储、真实 PostgreSQL、Linux、Playwright 浏览器 | 已处理 `tests/fixtures/text-layer-material.pdf` 并打开来源详情 | 执行 `make verify-e2e SCENARIO=v020-source-reader-page-nav`；执行 `make verify-visual CHECK=source-page-nav` | 当前命中页突出，上一页、下一页和回到命中页可用 | 未验证 | 待补充 | 阻塞 |
