@@ -143,6 +143,26 @@ def create_document_record(project_id: int, **overrides: Any) -> int:
         return int(row["id"])
 
 
+def create_question_record(project_id: int, text: str, **overrides: Any) -> int:
+    values = {
+        "status": "completed",
+        "failure_code": None,
+        "failure_reason": None,
+    }
+    values.update(overrides)
+    with connect() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO questions (project_id, text, status, failure_code, failure_reason)
+            VALUES (%(project_id)s, %(text)s, %(status)s, %(failure_code)s, %(failure_reason)s)
+            RETURNING id
+            """,
+            {"project_id": project_id, "text": text, **values},
+        ).fetchone()
+        conn.commit()
+        return int(row["id"])
+
+
 def delete_project_records(project_ids: list[int]) -> None:
     if not project_ids:
         return
@@ -919,6 +939,103 @@ def check_question_detail_api() -> None:
         delete_project_records([project_id])
 
 
+def check_question_research_scope_errors() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"重新检索范围错误-{suffix}")
+    other_project_id = create_project_record(f"重新检索跨项目-{suffix}")
+    no_searchable_project_id = create_project_record(f"重新检索无可检索-{suffix}")
+    try:
+        searchable_id = create_document_record(
+            project_id,
+            filename="research-searchable.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        processing_id = create_document_record(
+            project_id,
+            filename="research-processing.pdf",
+            status="processing",
+            processing_stage="embedding",
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        unsearchable_id = create_document_record(
+            project_id,
+            filename="research-unsearchable.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        other_document_id = create_document_record(
+            other_project_id,
+            filename="research-other.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        create_document_record(
+            no_searchable_project_id,
+            filename="research-no-searchable.pdf",
+            status="failed",
+            processing_stage="failed",
+            failed_stage="embedding",
+            failure_code="embedding_failed",
+            failure_reason="生成 embedding 失败",
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        question_id = create_question_record(project_id, "research scope errors")
+        no_searchable_question_id = create_question_record(no_searchable_project_id, "research no searchable")
+
+        require_status(
+            client.post("/questions/999999999/research", json={"document_ids": None}),
+            404,
+            "题目不存在",
+        )
+        require_status(
+            client.post(f"/questions/{question_id}/research", json={"document_ids": []}),
+            400,
+            "检索范围不能为空",
+        )
+        require_status(
+            client.post(f"/questions/{question_id}/research", json={"document_ids": [other_document_id]}),
+            400,
+            "检索范围包含不可用资料",
+        )
+        require_status(
+            client.post(f"/questions/{question_id}/research", json={"document_ids": [processing_id]}),
+            400,
+            "检索范围包含不可用资料",
+        )
+        require_status(
+            client.post(f"/questions/{question_id}/research", json={"document_ids": [unsearchable_id]}),
+            400,
+            "检索范围包含不可用资料",
+        )
+        require_status(
+            client.post(f"/questions/{question_id}/research", json={"document_ids": [searchable_id, unsearchable_id]}),
+            400,
+            "检索范围包含不可用资料",
+        )
+        require_status(
+            client.post(f"/questions/{no_searchable_question_id}/research", json={"document_ids": None}),
+            409,
+            "需先上传并处理资料",
+        )
+    finally:
+        delete_project_records([project_id, other_project_id, no_searchable_project_id])
+
+
 def check_stale_source() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -1015,6 +1132,7 @@ def main() -> None:
         "v020-question-scope-errors": check_question_scope_errors,
         "v020-question-history-api": check_question_history_api,
         "v020-question-detail-api": check_question_detail_api,
+        "v020-question-research-scope-errors": check_question_research_scope_errors,
         "v020-stale-source": check_stale_source,
     }
     if check not in checks:

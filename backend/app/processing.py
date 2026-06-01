@@ -263,93 +263,123 @@ def search_question(project_id: int, text: str, document_ids: list[int] | None =
             (project_id, text),
         ).fetchone()
         question_id = question["id"]
-        scope_filter = ""
-        params: list[object] = [vector_literal(query_embedding), project_id]
-        if document_ids is not None:
-            scope_filter = "AND d.id = ANY(%s)"
-            params.append(document_ids)
-        params.append(vector_literal(query_embedding))
-        rows = conn.execute(
-            f"""
-            SELECT
-              c.id AS chunk_id,
-              c.document_id,
-              c.page_no,
-              c.text AS source_text,
-              c.page_start_char,
-              c.page_end_char,
-              p.normalized_text,
-              1 - (c.embedding <=> %s::vector) AS score
-            FROM chunks c
-            JOIN document_pages p ON p.id = c.page_id
-            JOIN documents d ON d.id = c.document_id
-            WHERE d.project_id = %s
-              AND d.status = 'completed'
-              AND d.searchable = true
-              {scope_filter}
-              AND c.text IS NOT NULL
-              AND c.page_no IS NOT NULL
-            ORDER BY c.embedding <=> %s::vector
-            LIMIT 5
-            """,
-            params,
-        ).fetchall()
-        rows = [row for row in rows if float(row["score"]) >= MIN_MATCH_SCORE]
-        for row in rows:
-            normalized_text = row["normalized_text"]
-            source_text = row["source_text"].strip()
-            start = int(row["page_start_char"])
-            end = int(row["page_end_char"])
-            if start < 0 or end < start or end > len(normalized_text) or normalized_text[start:end] != source_text:
-                conn.execute(
-                    """
-                    UPDATE questions
-                    SET status = 'failed', failure_code = 'source_context_failed',
-                        failure_reason = '来源上下文生成失败',
-                        last_search_at = now(), updated_at = now()
-                    WHERE id = %s
-                    """,
-                    (question_id,),
-                )
-                conn.commit()
-                return question_id
-        for rank, row in enumerate(rows, start=1):
-            score = float(row["score"])
-            confidence_level = confidence_level_for_score(score)
-            source_text = row["source_text"].strip()
-            normalized_text = row["normalized_text"]
-            start = int(row["page_start_char"])
-            end = int(row["page_end_char"])
-            context_before = normalized_text[max(0, start - CONTEXT_CHARS) : start]
-            context_after = normalized_text[end : end + CONTEXT_CHARS]
-            conn.execute(
-                """
-                INSERT INTO question_matches (
-                  question_id, chunk_id, document_id, page_no, score, rank,
-                  confidence_level, hit_reason, source_text, context_before, context_after
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    question_id,
-                    row["chunk_id"],
-                    row["document_id"],
-                    row["page_no"],
-                    score,
-                    rank,
-                    confidence_level,
-                    "pgvector cosine similarity against DashScope text-embedding-v4 dense embedding",
-                    source_text,
-                    context_before,
-                    context_after,
-                ),
-            )
-        conn.execute(
-            "UPDATE questions SET status = %s, last_search_at = now(), updated_at = now() WHERE id = %s",
-            ("completed" if rows else "no_reliable_source", question_id),
-        )
+        write_question_search_results(conn, question_id, project_id, query_embedding, document_ids)
         conn.commit()
         return question_id
+
+
+def research_question(question_id: int, document_ids: list[int] | None = None) -> int:
+    with connect() as conn:
+        question = conn.execute("SELECT project_id, text FROM questions WHERE id = %s", (question_id,)).fetchone()
+    if not question:
+        raise ValueError(f"question not found: {question_id}")
+    query_embedding = embed_texts([question["text"]])[0]
+    with connect() as conn:
+        with conn.transaction():
+            locked = conn.execute("SELECT id FROM questions WHERE id = %s FOR UPDATE", (question_id,)).fetchone()
+            if not locked:
+                raise ValueError(f"question not found: {question_id}")
+            conn.execute("DELETE FROM question_matches WHERE question_id = %s", (question_id,))
+            conn.execute(
+                """
+                UPDATE questions
+                SET status = 'searching', failure_code = NULL, failure_reason = NULL,
+                    updated_at = now()
+                WHERE id = %s
+                """,
+                (question_id,),
+            )
+            write_question_search_results(conn, question_id, question["project_id"], query_embedding, document_ids)
+    return question_id
+
+
+def write_question_search_results(conn, question_id: int, project_id: int, query_embedding: list[float], document_ids: list[int] | None) -> None:
+    scope_filter = ""
+    params: list[object] = [vector_literal(query_embedding), project_id]
+    if document_ids is not None:
+        scope_filter = "AND d.id = ANY(%s)"
+        params.append(document_ids)
+    params.append(vector_literal(query_embedding))
+    rows = conn.execute(
+        f"""
+        SELECT
+          c.id AS chunk_id,
+          c.document_id,
+          c.page_no,
+          c.text AS source_text,
+          c.page_start_char,
+          c.page_end_char,
+          p.normalized_text,
+          1 - (c.embedding <=> %s::vector) AS score
+        FROM chunks c
+        JOIN document_pages p ON p.id = c.page_id
+        JOIN documents d ON d.id = c.document_id
+        WHERE d.project_id = %s
+          AND d.status = 'completed'
+          AND d.searchable = true
+          {scope_filter}
+          AND c.text IS NOT NULL
+          AND c.page_no IS NOT NULL
+        ORDER BY c.embedding <=> %s::vector
+        LIMIT 5
+        """,
+        params,
+    ).fetchall()
+    rows = [row for row in rows if float(row["score"]) >= MIN_MATCH_SCORE]
+    for row in rows:
+        normalized_text = row["normalized_text"]
+        source_text = row["source_text"].strip()
+        start = int(row["page_start_char"])
+        end = int(row["page_end_char"])
+        if start < 0 or end < start or end > len(normalized_text) or normalized_text[start:end] != source_text:
+            conn.execute(
+                """
+                UPDATE questions
+                SET status = 'failed', failure_code = 'source_context_failed',
+                    failure_reason = '来源上下文生成失败',
+                    last_search_at = now(), updated_at = now()
+                WHERE id = %s
+                """,
+                (question_id,),
+            )
+            conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (project_id,))
+            return
+    for rank, row in enumerate(rows, start=1):
+        score = float(row["score"])
+        confidence_level = confidence_level_for_score(score)
+        source_text = row["source_text"].strip()
+        normalized_text = row["normalized_text"]
+        start = int(row["page_start_char"])
+        end = int(row["page_end_char"])
+        context_before = normalized_text[max(0, start - CONTEXT_CHARS) : start]
+        context_after = normalized_text[end : end + CONTEXT_CHARS]
+        conn.execute(
+            """
+            INSERT INTO question_matches (
+              question_id, chunk_id, document_id, page_no, score, rank,
+              confidence_level, hit_reason, source_text, context_before, context_after
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                question_id,
+                row["chunk_id"],
+                row["document_id"],
+                row["page_no"],
+                score,
+                rank,
+                confidence_level,
+                "pgvector cosine similarity against DashScope text-embedding-v4 dense embedding",
+                source_text,
+                context_before,
+                context_after,
+            ),
+        )
+    conn.execute(
+        "UPDATE questions SET status = %s, failure_code = NULL, failure_reason = NULL, last_search_at = now(), updated_at = now() WHERE id = %s",
+        ("completed" if rows else "no_reliable_source", question_id),
+    )
+    conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (project_id,))
 
 
 def queue_process_document(document_id: int) -> None:

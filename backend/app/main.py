@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.db import connect
-from app.processing import create_uploaded_document, queue_process_document, search_question
+from app.processing import create_uploaded_document, queue_process_document, research_question, search_question
 
 app = FastAPI(title="Suton v0.1.0 API")
 logger = logging.getLogger(__name__)
@@ -278,6 +278,17 @@ def create_question(project_id: int, payload: dict[str, Any]) -> dict:
         raise HTTPException(status_code=400, detail="题目不能为空")
     document_ids = validate_question_document_scope(project_id, payload.get("document_ids"))
     question_id = search_question(project_id, text, document_ids)
+    return get_question(question_id)
+
+
+@app.post("/questions/{question_id}/research")
+def research_existing_question(question_id: int, payload: dict[str, Any]) -> dict:
+    with connect() as conn:
+        question = conn.execute("SELECT project_id FROM questions WHERE id = %s", (question_id,)).fetchone()
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    document_ids = validate_question_document_scope(question["project_id"], payload.get("document_ids"))
+    research_question(question_id, document_ids)
     return get_question(question_id)
 
 
