@@ -15,12 +15,24 @@
   - 入口固定为点击来源结果行，不新增独立路由作为唯一入口；浏览器 URL 不随来源切换变化，页面可用性不得依赖用户手写 URL。
   - 桌面端来源阅读区固定在工作台右侧；专注模式下阅读区扩大，但仍保留当前题目和来源结果列表。
   - 移动端点击来源结果后打开全屏详情层；详情层顶部必须提供返回当前题目的入口。
+  - 来源结果列表中当前打开的来源行必须标记为选中状态；用户点击另一条来源结果时，同一阅读区原地替换 PDF 页、命中段落、上下文和来源元信息，不重置当前题目和检索范围。
   - PDF 页入口固定使用 `GET /documents/{document_id}/file#page={page_no}` 形式；`page_no` 从 1 开始。
   - 来源详情响应必须包含 `document_id`、`filename`、`page_no`、`chunk_id`、`source_text`、`context_before`、`context_after`、`pdf_url`、`score`、`rank`、`confidence_level`、`hit_reason`。
+  - 前端打开来源详情时必须具备该资料的 `page_count`；若当前状态未缓存资料对象，必须调用 `GET /documents/{document_id}` 取得 `page_count`，不得用固定页数或未知总页数替代。
   - `source_text` 必须为完整命中 chunk 文本，trim 后返回，不截断、不摘要、不由 AI 改写。
   - `context_before` 和 `context_after` 必须按 `data-001-v020-model-api.md` 中固定的规范化页文本和 chunk offset 算法生成；前端只展示后端返回值，不自行重新生成上下文。
   - `hit_reason` 必须是确定性命中原因，不得生成无来源解释。
-  - PDF 文件不存在、资料已删除、chunk 已删除或来源结果已被重处理清除时，详情接口返回 HTTP 404，前端展示 `来源已失效` 或 `资料文件不存在` 对应错误状态，不得展示缓存片段伪装为可打开来源。
+  - 资料已删除、chunk 已删除或来源结果已被重处理清除时，来源详情接口返回 HTTP 404，`detail` 固定为 `来源已失效`，前端展示 `来源已失效` 错误状态，不得展示缓存片段伪装为可打开来源。
+  - PDF 文件不存在时，`GET /documents/{document_id}/file` 返回 HTTP 404，`detail` 固定为 `资料文件不存在`，前端展示 `资料文件不存在` 错误状态，不得展示缓存 PDF 或缓存片段伪装为可打开来源。
+- PDF 阅读控件契约：
+  - `PdfReaderShell` 顶部工具栏从左到右固定为文件名、页码状态、上一页 IconButton、下一页 IconButton、回到命中页按钮；文件名超过一行时中间截断并保留扩展名。
+  - 页码状态文案固定为 `第 {current_page} / {page_count} 页`；`page_count` 来自资料详情的 `page_count`，不得为空或缺失；若无法取得 `page_count`，来源阅读视图必须阻塞并展示后端 `detail`，不得降级为未知总页数。
+  - 打开来源详情时 `current_page` 固定初始化为来源 `page_no`，命中页固定为该 `page_no`；命中页状态使用 `StatusPill` 展示 `命中页`。
+  - 上一页按钮使用 `ChevronLeft` 图标，`aria-label` 固定为 `上一页`；`current_page <= 1` 时 disabled。
+  - 下一页按钮使用 `ChevronRight` 图标，`aria-label` 固定为 `下一页`；存在 `page_count` 且 `current_page >= page_count` 时 disabled。
+  - 回到命中页按钮文案固定为 `回到命中页`；`current_page = page_no` 时 disabled。
+  - 页码变化只更新 PDF 文件 URL hash 中的 `page` 值和页码状态，不重新请求来源详情，不改变命中段落与上下文。
+  - PDF 文件接口返回 `资料文件不存在` 时，阅读区错误状态固定使用 `AlertTriangle` 图标、标题 `资料文件不存在`、正文 `无法打开原 PDF 文件。`；来源详情接口返回 `来源已失效` 时，错误状态固定使用 `AlertTriangle` 图标、标题 `来源已失效`、正文 `该来源已被删除或重新处理。`。
 - 验收标准：
   - 点击任一来源结果可打开详情视图。
   - 详情视图展示 PDF 目标页。
