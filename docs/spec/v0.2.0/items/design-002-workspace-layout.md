@@ -11,6 +11,26 @@
 - 涉及模块：前端布局、项目导航、资料列表、题目历史、来源结果、PDF 详情视图。
 - 配置、接口或数据结构变化：无。
 - 兼容性要求：布局变化不得破坏键盘输入、上传文件、打开来源和检索结果展示。
+- 布局契约：
+  - 桌面三列布局适用于 viewport 宽度 >= 1280px，高度 >= 720px；根容器高度固定为 `100dvh`，页面主体不得产生浏览器级纵向滚动。
+  - 桌面端采用三列 CSS grid：左侧项目栏固定 248px，中间主工作区 `minmax(520px, 1fr)`，右侧来源阅读区固定 420px；列间分隔线使用 `#d8ddd2`。
+  - 1200px 到 1279px 之间使用紧凑桌面布局：左侧项目栏 220px，右侧来源阅读区 360px，中间区域最小 480px。
+  - 1024px 到 1199px 使用双栏布局：左侧项目栏 220px，中间主工作区占剩余宽度；来源阅读以覆盖式详情层打开。
+  - 390px 到 1023px 使用移动布局：顶部只显示当前项目标题和当前状态，底部三段导航固定为 `项目`、`检索`、`来源`；来源阅读使用全屏详情层。
+  - 390px 以下不是 v0.2.0 验证范围；实现不得主动阻断访问，但发布门禁只验证 390px 及以上。
+  - 所有固定工具栏高度为 48px；底部移动导航高度为 56px；滚动区域高度必须通过 `min-height: 0` 和 `overflow: auto` 限定在各自 grid/flex 容器内。
+- 区域契约：
+  - 左侧项目栏包含项目列表、项目新建入口和当前项目统计；只有项目列表滚动，项目栏头部和新建入口固定。
+  - 中间主工作区自上而下固定为当前项目标题栏、资料管理区、题目检索区、题目历史区；资料列表和题目历史分别在内部滚动。
+  - 右侧来源阅读区固定包含来源结果列表、来源详情和 PDF 阅读壳；来源结果列表和 PDF 阅读内容分别在内部滚动。
+  - 当前题目工具栏高度固定 48px，右侧最后一个工具按钮为专注模式入口，`aria-label` 固定为 `进入专注模式`。
+  - 专注模式桌面端隐藏左侧项目栏和中间资料管理区，布局固定为左侧题目与来源结果 420px、右侧 PDF 阅读 `minmax(640px, 1fr)`；退出按钮 `aria-label` 固定为 `退出专注模式`。
+  - 退出专注模式后必须恢复进入前的当前项目、当前题目、来源选择、PDF 页码、检索范围和资料列表滚动位置。
+  - 移动端底部导航切换不得重新发起题目检索或资料处理；只切换可见区域。
+- 文本与溢出契约：
+  - 项目名、文件名、题目文本和来源标题在列表中最多占两行，超过两行使用截断；详情视图中允许完整换行展示。
+  - 任一 viewport 下不得出现横向滚动条；按钮文字不得溢出按钮边界。
+  - 长列表验证数据固定为 20 个项目、20 份资料、20 道题目历史和 20 条来源结果。
 - 验收标准：
   - 左侧项目区域固定高度并在内部滚动。
   - 资料列表、题目历史和来源结果均不得无限撑长页面。
@@ -21,13 +41,16 @@
   - 专注模式进入后隐藏项目导航和资料管理区域，保留当前题目、来源结果和 PDF 阅读。
   - 专注模式退出入口固定在顶部左侧，点击一次后退出，退出后当前项目、题目、来源选择和 PDF 页码不丢失。
   - 移动宽度下使用底部三段导航和全屏来源详情层，不出现横向溢出。
+  - 1440x900、1280x832、1200x800、1024x768 和 390x844 viewport 均符合本条目布局契约。
 - 验证矩阵：
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
 |---|---|---|---|---|---|---|---|
-| 长列表布局 | Node.js、pnpm、Playwright 浏览器、Linux、1440px 和 390px viewport、真实 Web | 已通过 `make reset-demo` 准备空库，由测试场景创建 20 个项目、20 份资料记录、20 道题目历史 | 执行 `make verify-e2e SCENARIO=v020-long-lists`；执行 `make verify-visual CHECK=long-lists` | 页面整体高度不被列表无限拉长，项目列表、资料列表、题目历史和来源结果均在各自区域内部滚动 | 未验证 | 待补充 | 阻塞 |
+| 长列表布局 | Node.js、pnpm、Playwright 浏览器、Linux、1440x900 和 390x844 viewport、真实 Web | 已通过 `make reset-demo` 准备空库，由测试场景创建 20 个项目、20 份资料记录、20 道题目历史 | 执行 `make verify-e2e SCENARIO=v020-long-lists`；执行 `make verify-visual CHECK=long-lists` | 页面整体高度不被列表无限拉长，项目列表、资料列表、题目历史和来源结果均在各自区域内部滚动 | 未验证 | 待补充 | 阻塞 |
 | 当前上下文清晰 | Node.js、pnpm、Playwright 浏览器、Linux、真实 Web、真实后端、真实 PostgreSQL | 已选择项目，已处理 `tests/fixtures/text-layer-material.pdf`，已检索 `tests/fixtures/question.txt` | 执行 `make verify-visual CHECK=current-context` | 当前项目、当前题目、当前来源一眼可见 | 未验证 | 待补充 | 阻塞 |
-| 窄屏布局 | Node.js、pnpm、Playwright 浏览器、Linux、390px viewport、真实 Web | 已启动 Web 应用并准备固定 fixture 数据 | 执行 `make verify-visual CHECK=mobile-workspace` | 页面无横向溢出、遮挡、文本压缩失败或不可操作控件 | 未验证 | 待补充 | 阻塞 |
-| 专注模式 | Node.js、pnpm、Playwright 浏览器、Linux、1440px viewport、真实 Web | 已选择项目，已处理 `tests/fixtures/text-layer-material.pdf`，已检索 `tests/fixtures/question.txt` 并打开来源详情 | 执行 `make verify-e2e SCENARIO=v020-focus-mode`；执行 `make verify-visual CHECK=focus-mode` | 当前题目工具栏右侧存在单个图标入口；点击一次进入专注模式后只保留当前题目、来源结果和 PDF 阅读；顶部左侧退出入口点击一次后恢复上下文 | 未验证 | 待补充 | 阻塞 |
+| 窄屏布局 | Node.js、pnpm、Playwright 浏览器、Linux、390x844 viewport、真实 Web | 已启动 Web 应用并准备固定 fixture 数据 | 执行 `make verify-visual CHECK=mobile-workspace` | 页面无横向溢出、遮挡、文本压缩失败或不可操作控件 | 未验证 | 待补充 | 阻塞 |
+| 专注模式 | Node.js、pnpm、Playwright 浏览器、Linux、1440x900 viewport、真实 Web | 已选择项目，已处理 `tests/fixtures/text-layer-material.pdf`，已检索 `tests/fixtures/question.txt` 并打开来源详情 | 执行 `make verify-e2e SCENARIO=v020-focus-mode`；执行 `make verify-visual CHECK=focus-mode` | 当前题目工具栏右侧存在单个图标入口；点击一次进入专注模式后只保留当前题目、来源结果和 PDF 阅读；顶部左侧退出入口点击一次后恢复上下文 | 未验证 | 待补充 | 阻塞 |
+| 桌面断点 | Node.js、pnpm、Playwright 浏览器、Linux、1440x900、1280x832、1200x800、1024x768 viewport、真实 Web | 已准备固定 fixture 数据 | 执行 `make verify-visual CHECK=workspace-breakpoints` | 三列、紧凑桌面和双栏布局按固定断点生效，页面主体无浏览器级纵向滚动 | 未验证 | 待补充 | 阻塞 |
+| 专注模式恢复 | Node.js、pnpm、Playwright 浏览器、Linux、1440x900 viewport、真实 Web | 已选择项目、检索题目、打开来源详情并滚动资料列表 | 执行 `make verify-e2e SCENARIO=v020-focus-mode-restore` | 退出专注模式后项目、题目、来源、PDF 页码、检索范围和资料滚动位置保持不变 | 未验证 | 待补充 | 阻塞 |
 
 - 风险与回滚：工作台布局若过度复杂会降低实现速度。若出现风险，应减少视图数量，但不得回到长页面堆叠。
