@@ -461,7 +461,7 @@ export default function Home() {
           <div className="mb-7">
             <div className="mb-2 flex items-center gap-3">
               <div className="grid h-11 w-11 place-items-center rounded-md bg-[#d8eadb] text-[#204f3a] ring-1 ring-[#b5d1bd]">
-                <BookOpen size={21} />
+                <BookOpen size={18} strokeWidth={1.75} />
               </div>
               <div>
                 <h1 className="text-2xl font-semibold tracking-normal text-[#204832]">Suton</h1>
@@ -481,7 +481,7 @@ export default function Home() {
               onClick={openCreateProjectDialog}
               className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#315f43] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#264b35]"
             >
-              <Plus size={16} />
+              <Plus size={16} strokeWidth={1.75} />
               新建项目
             </button>
           </div>
@@ -513,7 +513,7 @@ export default function Home() {
 
           <div className="mt-6 rounded-md border border-[#c8d9c8] bg-[#edf6e9] p-4 text-sm text-[#31583e]">
             <div className="mb-2 flex items-center gap-2 font-semibold">
-              <ShieldCheck size={17} />
+              <ShieldCheck size={18} strokeWidth={1.75} />
               只展示有来源的结果
             </div>
             <p className="text-xs leading-5 text-[#485d4b]">不生成无来源答案，只返回资料文件、页码和原文片段。</p>
@@ -537,7 +537,7 @@ export default function Home() {
                       onClick={() => setProjectMenuOpen((open) => !open)}
                       className="focus-ring grid h-9 w-9 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] hover:bg-[#edf6e9]"
                     >
-                      <MoreHorizontal size={18} />
+                      <MoreHorizontal size={18} strokeWidth={1.75} />
                     </button>
                     {projectMenuOpen && (
                       <div className="absolute left-0 top-11 z-20 w-36 rounded-md border border-[#c8d8c7] bg-[#fbfcf8] p-1 shadow-lg">
@@ -546,7 +546,7 @@ export default function Home() {
                           onClick={openRenameProjectDialog}
                           className="focus-ring flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm text-[#273d2f] hover:bg-[#edf6e9]"
                         >
-                          <Pencil size={15} />
+                          <Pencil size={16} strokeWidth={1.75} />
                           重命名
                         </button>
                         <button
@@ -554,7 +554,7 @@ export default function Home() {
                           onClick={openDeleteProjectDialog}
                           className="focus-ring flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm text-[#9d4d2f] hover:bg-[#fff1ec]"
                         >
-                          <Trash2 size={15} />
+                          <Trash2 size={16} strokeWidth={1.75} />
                           删除项目
                         </button>
                       </div>
@@ -564,14 +564,14 @@ export default function Home() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-md border border-[#d0dccd] bg-[#f9fbf5] px-3 py-2 text-sm text-[#425542]">
-              <CheckCircle2 size={16} />
+              <CheckCircle2 size={16} strokeWidth={1.75} />
               本地来源闭环
             </div>
           </div>
 
           {error && (
             <div className="mb-5 flex items-start gap-2 rounded-md border border-[#c98972] bg-[#fff8f4] px-4 py-3 text-sm text-[#9d4d2f]">
-              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <AlertCircle size={16} strokeWidth={1.75} className="mt-0.5 shrink-0" />
               <span>{error}</span>
             </div>
           )}
@@ -581,7 +581,7 @@ export default function Home() {
               <div className="mb-4 flex items-center justify-between gap-4 max-sm:flex-col max-sm:items-start">
                 <div>
                   <div className="flex items-center gap-2 text-[#203a2b]">
-                    <Library size={18} />
+                    <Library size={18} strokeWidth={1.75} />
                     <h3 className="text-lg font-semibold">资料库</h3>
                   </div>
                   <p className="mt-1 text-sm text-[#4f5d50]">上传带文字层的 PDF，系统解析页面文本并建立 pgvector 索引。</p>
@@ -600,7 +600,7 @@ export default function Home() {
                     activeProject ? "bg-[#e4f0df] hover:bg-[#d9ead4]" : "bg-[#e4f0df] hover:bg-[#d9ead4]"
                   }`}
                 >
-                  <FileUp size={16} />
+                  <FileUp size={16} strokeWidth={1.75} />
                   {documents.length === 0 ? "添加第一份课程资料" : "上传 PDF"}
                   <input
                     ref={documentFileInputRef}
@@ -648,7 +648,7 @@ export default function Home() {
 
             <section className="paper-panel">
               <div className="mb-4 flex items-center gap-2 text-[#203a2b]">
-                <Search size={18} />
+                <Search size={18} strokeWidth={1.75} />
                 <h3 className="text-lg font-semibold">溯源请求</h3>
               </div>
               <form onSubmit={submitQuestion}>
@@ -677,7 +677,7 @@ export default function Home() {
                     disabled={questionSubmitDisabled}
                     className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#315f43] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#264b35] disabled:opacity-55"
                   >
-                    {busy ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                    {busy ? <Loader2 size={16} strokeWidth={1.75} className="animate-spin" /> : <Search size={16} strokeWidth={1.75} />}
                     查找资料依据
                   </button>
                 </div>
@@ -689,7 +689,7 @@ export default function Home() {
         <aside className="paper-inspector min-h-screen px-5 py-7 max-xl:min-h-0" data-testid="evidence-preview">
           <div className="mb-5">
             <div className="flex items-center gap-2 text-[#203a2b]">
-              <FolderOpen size={18} />
+              <FolderOpen size={18} strokeWidth={1.75} />
               <h3 className="text-xl font-semibold">资料依据</h3>
             </div>
             <p className="mt-1 text-sm text-[#4f5d50]">Source Results</p>
@@ -730,7 +730,7 @@ export default function Home() {
                         target="_blank"
                         className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
                       >
-                        <ArrowUpRight size={14} />
+                        <ArrowUpRight size={16} strokeWidth={1.75} />
                         PDF
                       </a>
                     </div>
@@ -839,7 +839,7 @@ function ProjectNameDialog({
             disabled={busy}
             className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#315f43] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
           >
-            {busy && <Loader2 size={16} className="animate-spin" />}
+            {busy && <Loader2 size={16} strokeWidth={1.75} className="animate-spin" />}
             {submitLabel}
           </button>
         </div>
@@ -886,7 +886,7 @@ function ProjectDeleteDialog({
           onClick={onConfirm}
           className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#9d4d2f] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
         >
-          {busy && <Loader2 size={16} className="animate-spin" />}
+          {busy && <Loader2 size={16} strokeWidth={1.75} className="animate-spin" />}
           确认删除
         </button>
       </div>
@@ -929,7 +929,7 @@ function DocumentDeleteDialog({
           onClick={onConfirm}
           className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#9d4d2f] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
         >
-          {busy && <Loader2 size={16} className="animate-spin" />}
+          {busy && <Loader2 size={16} strokeWidth={1.75} className="animate-spin" />}
           删除资料
         </button>
       </div>
@@ -962,7 +962,7 @@ function DialogFrame({ title, children, onClose }: { title: string; children: Re
             onClick={onClose}
             className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] text-[#315f43] hover:bg-[#edf6e9]"
           >
-            <X size={16} />
+            <X size={16} strokeWidth={1.75} />
           </button>
         </div>
         {children}
@@ -1075,7 +1075,7 @@ function DocumentRowView({
   return (
     <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4" data-testid={`document-row-${document.id}`}>
       <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-md bg-[#e5efe0] text-[#315f43]">
-        <FileText size={18} />
+        <FileText size={18} strokeWidth={1.75} />
       </div>
       <div className="min-w-0">
         <button
@@ -1106,7 +1106,7 @@ function DocumentRowView({
               onClick={() => onDelete(document)}
               className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec]"
             >
-              <Trash2 size={14} />
+              <Trash2 size={16} strokeWidth={1.75} />
               删除资料
             </button>
             <button
@@ -1114,7 +1114,7 @@ function DocumentRowView({
               onClick={() => onSelect(document)}
               className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#d5c9aa] bg-[#fffaf0] px-2 py-1 text-xs font-semibold text-[#6f5633] hover:bg-[#fff5db]"
             >
-              <AlertCircle size={14} />
+              <AlertCircle size={16} strokeWidth={1.75} />
               查看失败原因
             </button>
           </div>
@@ -1127,7 +1127,7 @@ function DocumentRowView({
           onClick={() => onDelete(document)}
           className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec]"
         >
-          <Trash2 size={14} />
+          <Trash2 size={16} strokeWidth={1.75} />
           删除资料
         </button>
       </div>
@@ -1151,7 +1151,7 @@ function DocumentDetail({
     <section className="mt-5 border-t border-[#dce4d7] pt-5" data-testid="document-detail">
       <div className="mb-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-2 text-[#203a2b]">
-          <FileText size={18} />
+          <FileText size={18} strokeWidth={1.75} />
           <h4 className="text-base font-semibold">资料详情</h4>
         </div>
         {failed && (
@@ -1171,7 +1171,7 @@ function DocumentDetail({
               onClick={() => onDelete(document)}
               className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec] disabled:opacity-55"
             >
-              <Trash2 size={14} />
+              <Trash2 size={16} strokeWidth={1.75} />
               删除资料
             </button>
           </div>
@@ -1214,7 +1214,7 @@ function SourceReader({
     return (
       <section className="rounded-md border border-[#c98972] bg-[#fff8f4] p-4" data-testid="source-reader-error">
         <div className="mb-2 flex items-center gap-2 font-semibold text-[#9d4d2f]">
-          <AlertTriangle size={17} />
+          <AlertTriangle size={18} strokeWidth={1.75} />
           {missingFile ? "资料文件不存在" : "来源已失效"}
         </div>
         <p className="text-sm leading-6 text-[#6e4a3b]">{missingFile ? "无法打开原 PDF 文件。" : "该来源已被删除或重新处理。"}</p>
@@ -1255,7 +1255,7 @@ function SourceReader({
             onClick={() => onPageChange(currentPage - 1)}
             className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] disabled:opacity-45"
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={16} strokeWidth={1.75} />
           </button>
           <button
             type="button"
@@ -1264,7 +1264,7 @@ function SourceReader({
             onClick={() => onPageChange(currentPage + 1)}
             className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] disabled:opacity-45"
           >
-            <ChevronRight size={16} />
+            <ChevronRight size={16} strokeWidth={1.75} />
           </button>
           <button
             type="button"
@@ -1279,7 +1279,7 @@ function SourceReader({
             target="_blank"
             className="focus-ring ml-auto inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#edf6e9] px-2 py-2 text-xs font-semibold text-[#315f43] hover:bg-[#dfeedd]"
           >
-            <ArrowUpRight size={14} />
+            <ArrowUpRight size={16} strokeWidth={1.75} />
             PDF
           </a>
         </div>
@@ -1339,9 +1339,9 @@ function ProcessingTrack({ document }: { document: DocumentRow }) {
             >
               <div className="mb-1 flex items-center justify-center">
                 {state === "failed" ? (
-                  <AlertTriangle size={14} />
+                  <AlertTriangle size={16} strokeWidth={1.75} />
                 ) : state === "done" ? (
-                  <CheckCircle2 size={14} />
+                  <CheckCircle2 size={16} strokeWidth={1.75} />
                 ) : (
                   <span className={`h-2 w-2 rounded-full border ${state === "active" ? "animate-pulse bg-[#315f43]" : "border-current"}`} />
                 )}
@@ -1354,7 +1354,7 @@ function ProcessingTrack({ document }: { document: DocumentRow }) {
       </div>
       {isFailedDocument(document) && document.failure_reason && (
         <p className="flex items-start gap-2 text-xs leading-5 text-[#9d4d2f]" data-testid={`document-failure-reason-${document.id}`}>
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <AlertTriangle size={16} strokeWidth={1.75} className="mt-0.5 shrink-0" />
           <span>{document.failure_reason}</span>
         </p>
       )}
@@ -1363,7 +1363,7 @@ function ProcessingTrack({ document }: { document: DocumentRow }) {
 }
 
 function RefreshCwIcon() {
-  return <RefreshCw size={14} />;
+  return <RefreshCw size={16} strokeWidth={1.75} />;
 }
 
 function FirstEmptyProject() {

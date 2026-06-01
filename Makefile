@@ -102,6 +102,9 @@ verify-e2e:
 	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test "$${test_args[@]}"; status=$$?; cleanup; exit $$status)
 
 verify-visual:
+ifeq ($(CHECK),design-tokens)
+	uv run --project backend python scripts/verify_design_tokens.py
+else
 	@if [[ "$$CHECK" != "source-page-nav" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "mobile-workspace" ]]; then \
 		echo "unsupported visual CHECK: $$CHECK"; exit 2; \
 	fi
@@ -119,6 +122,7 @@ verify-visual:
 	 uv run --project backend python scripts/wait_http.py "$$api_url/health" "$$web_url" && \
 	 if [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; elif [[ "$$CHECK" == "first-empty-project" ]]; then visual_grep="visual-first-empty-project"; elif [[ "$$CHECK" == "legacy-copy-removed" ]]; then visual_grep="visual-legacy-copy-removed"; else visual_grep="visual-mobile-workspace"; fi; \
 	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test --grep "$$visual_grep"; status=$$?; cleanup; exit $$status)
+endif
 
 test: backend-test frontend-test v020-db-test v020-api-test
 
