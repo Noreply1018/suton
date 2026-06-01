@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import runpy
 
 from app.db import connect
 
@@ -74,6 +75,299 @@ def check_schema() -> None:
         missing_columns = expected_columns - present_columns.get(table, set())
         require(not missing_columns, f"missing columns in {table}: {sorted(missing_columns)}")
     require(vector_installed == 1, "pgvector extension is not installed")
+
+
+def check_v020_schema() -> None:
+    required_tables = {"projects", "documents", "document_pages", "chunks", "questions", "question_matches"}
+    required_columns = {
+        "projects": {"id", "workspace_id", "name", "created_at", "updated_at"},
+        "documents": {
+            "id",
+            "project_id",
+            "filename",
+            "content_type",
+            "storage_path",
+            "page_count",
+            "extractable_page_count",
+            "chunk_count",
+            "text_quality",
+            "searchable",
+            "status",
+            "processing_stage",
+            "failed_stage",
+            "failure_code",
+            "failure_reason",
+            "created_at",
+            "processed_at",
+            "updated_at",
+        },
+        "document_pages": {"id", "document_id", "page_no", "raw_text", "normalized_text", "char_count", "created_at"},
+        "chunks": {
+            "id",
+            "document_id",
+            "page_id",
+            "page_no",
+            "text",
+            "page_start_char",
+            "page_end_char",
+            "embedding",
+            "embedding_provider",
+            "embedding_model",
+            "embedding_dimension",
+            "embedding_call",
+            "created_at",
+        },
+        "questions": {"id", "project_id", "text", "status", "failure_code", "failure_reason", "last_search_at", "created_at", "updated_at"},
+        "question_matches": {
+            "id",
+            "question_id",
+            "chunk_id",
+            "document_id",
+            "page_no",
+            "score",
+            "rank",
+            "confidence_level",
+            "hit_reason",
+            "source_text",
+            "context_before",
+            "context_after",
+            "created_at",
+        },
+    }
+    required_constraints = {
+        "documents_status_check",
+        "documents_text_quality_check",
+        "documents_processing_stage_check",
+        "documents_failed_stage_check",
+        "documents_failure_code_check",
+        "questions_status_check",
+        "questions_failure_code_check",
+        "chunks_embedding_dimension_check",
+        "question_matches_confidence_level_check",
+        "question_matches_document_id_fkey",
+        "question_matches_page_no_check",
+        "chunks_page_offsets_check",
+    }
+    required_foreign_keys = {
+        ("documents", "project_id", "projects"),
+        ("document_pages", "document_id", "documents"),
+        ("chunks", "document_id", "documents"),
+        ("chunks", "page_id", "document_pages"),
+        ("questions", "project_id", "projects"),
+        ("question_matches", "question_id", "questions"),
+        ("question_matches", "chunk_id", "chunks"),
+        ("question_matches", "document_id", "documents"),
+    }
+    expected_constraint_fragments = {
+        "documents_status_check": ["uploaded", "processing", "completed", "failed", "unsupported", "deleting"],
+        "documents_text_quality_check": ["good", "fair", "poor", "unsearchable"],
+        "documents_processing_stage_check": ["uploaded", "extracting_text", "chunking", "embedding", "indexing", "completed", "failed"],
+        "documents_failed_stage_check": ["uploaded", "extracting_text", "chunking", "embedding", "indexing"],
+        "documents_failure_code_check": [
+            "invalid_pdf",
+            "unsupported_file_type",
+            "no_text_layer",
+            "extract_text_failed",
+            "chunking_failed",
+            "embedding_failed",
+            "indexing_failed",
+            "storage_missing",
+            "delete_file_failed",
+            "unknown_processing_error",
+        ],
+        "questions_status_check": ["searching", "completed", "no_reliable_source", "failed"],
+        "questions_failure_code_check": ["embedding_failed", "source_context_failed", "search_failed"],
+        "chunks_embedding_dimension_check": ["embedding_dimension", "1024"],
+        "question_matches_confidence_level_check": ["strong", "reference", "low"],
+        "question_matches_page_no_check": ["page_no", "> 0"],
+        "chunks_page_offsets_check": ["page_start_char >= 0", "page_end_char >= page_start_char"],
+    }
+    with connect() as conn:
+        table_rows = conn.execute(
+            """
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public'
+            """
+        ).fetchall()
+        column_rows = conn.execute(
+            """
+            SELECT table_name, column_name FROM information_schema.columns
+            WHERE table_schema = 'public'
+            """
+        ).fetchall()
+        constraint_rows = conn.execute(
+            """
+            SELECT con.conname AS constraint_name, pg_get_constraintdef(con.oid) AS constraint_definition
+            FROM pg_constraint con
+            JOIN pg_namespace nsp ON nsp.oid = con.connamespace
+            WHERE nsp.nspname = 'public'
+            """
+        ).fetchall()
+        unique_index_count = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND tablename = 'projects'
+              AND indexname = 'projects_workspace_name_unique'
+              AND indexdef ILIKE '%UNIQUE%'
+              AND indexdef ILIKE '%workspace_id%'
+              AND indexdef ILIKE '%name%'
+            """
+        ).fetchone()["value"]
+        foreign_key_rows = conn.execute(
+            """
+            SELECT
+              tc.table_name,
+              kcu.column_name,
+              ccu.table_name AS referenced_table
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage ccu
+              ON ccu.constraint_name = tc.constraint_name
+             AND ccu.table_schema = tc.table_schema
+            WHERE tc.table_schema = 'public'
+              AND tc.constraint_type = 'FOREIGN KEY'
+            """
+        ).fetchall()
+        embedding_type = conn.execute(
+            """
+            SELECT format_type(a.atttypid, a.atttypmod) AS value
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relname = 'chunks'
+              AND a.attname = 'embedding'
+              AND NOT a.attisdropped
+            """
+        ).fetchone()["value"]
+        not_null_rows = conn.execute(
+            """
+            SELECT table_name, column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND is_nullable = 'NO'
+            """
+        ).fetchall()
+        incompatible_completed_documents = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM documents d
+            LEFT JOIN (
+              SELECT
+                document_id,
+                COUNT(*)::int AS chunk_count,
+                COUNT(DISTINCT page_id)::int AS extractable_page_count
+              FROM chunks
+              GROUP BY document_id
+            ) c ON c.document_id = d.id
+            WHERE d.status = 'completed'
+              AND COALESCE(c.chunk_count, 0) > 0
+              AND (
+                d.searchable IS NOT TRUE
+                OR d.text_quality = 'unsearchable'
+                OR d.chunk_count <> c.chunk_count
+                OR d.extractable_page_count <> c.extractable_page_count
+              )
+            """
+        ).fetchone()["value"]
+        invalid_page_stats = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM document_pages
+            WHERE char_count <> length(normalized_text)
+              OR normalized_text <> btrim(regexp_replace(raw_text, '[ \t]+', ' ', 'g'))
+            """
+        ).fetchone()["value"]
+        invalid_chunk_offsets = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM chunks c
+            JOIN document_pages p ON p.id = c.page_id
+            WHERE c.page_start_char < 0
+              OR c.page_end_char < c.page_start_char
+              OR c.page_end_char > length(p.normalized_text)
+              OR substring(p.normalized_text from c.page_start_char + 1 for c.page_end_char - c.page_start_char) <> c.text
+            """
+        ).fetchone()["value"]
+        inconsistent_matches = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM question_matches qm
+            JOIN chunks c ON c.id = qm.chunk_id
+            WHERE qm.document_id <> c.document_id
+              OR qm.page_no <> c.page_no
+            """
+        ).fetchone()["value"]
+        invalid_document_health = conn.execute(
+            """
+            SELECT COUNT(*) AS value
+            FROM documents
+            WHERE extractable_page_count > COALESCE(page_count, 0)
+              OR text_quality <> CASE
+                WHEN COALESCE(page_count, 0) <= 0 OR extractable_page_count = 0 THEN 'unsearchable'
+                WHEN extractable_page_count::double precision / page_count >= 0.90 THEN 'good'
+                WHEN extractable_page_count::double precision / page_count >= 0.50 THEN 'fair'
+                ELSE 'poor'
+              END
+              OR searchable <> (
+                status = 'completed'
+                AND chunk_count > 0
+                AND text_quality <> 'unsearchable'
+              )
+            """
+        ).fetchone()["value"]
+        non_monotonic_chunk_offsets = conn.execute(
+            """
+            WITH ordered_chunks AS (
+              SELECT
+                page_id,
+                id,
+                page_start_char,
+                LAG(page_end_char) OVER (PARTITION BY page_id ORDER BY id) AS previous_end
+              FROM chunks
+            )
+            SELECT COUNT(*) AS value
+            FROM ordered_chunks
+            WHERE previous_end IS NOT NULL
+              AND page_start_char < previous_end
+            """
+        ).fetchone()["value"]
+        vector_installed = conn.execute("SELECT COUNT(*) AS value FROM pg_extension WHERE extname = 'vector'").fetchone()["value"]
+    present_tables = {row["table_name"] for row in table_rows}
+    require(not (required_tables - present_tables), f"missing v0.2.0 tables: {sorted(required_tables - present_tables)}")
+    present_columns: dict[str, set[str]] = {}
+    for row in column_rows:
+        present_columns.setdefault(row["table_name"], set()).add(row["column_name"])
+    for table, expected_columns in required_columns.items():
+        missing_columns = expected_columns - present_columns.get(table, set())
+        require(not missing_columns, f"missing v0.2.0 columns in {table}: {sorted(missing_columns)}")
+    present_constraints = {row["constraint_name"] for row in constraint_rows}
+    missing_constraints = required_constraints - present_constraints
+    require(not missing_constraints, f"missing v0.2.0 constraints: {sorted(missing_constraints)}")
+    constraint_definitions = {row["constraint_name"]: row["constraint_definition"] for row in constraint_rows}
+    for constraint_name, fragments in expected_constraint_fragments.items():
+        definition = constraint_definitions.get(constraint_name, "")
+        missing_fragments = [fragment for fragment in fragments if fragment not in definition]
+        require(not missing_fragments, f"constraint {constraint_name} missing fragments: {missing_fragments}")
+    present_foreign_keys = {(row["table_name"], row["column_name"], row["referenced_table"]) for row in foreign_key_rows}
+    missing_foreign_keys = required_foreign_keys - present_foreign_keys
+    require(not missing_foreign_keys, f"missing v0.2.0 foreign keys: {sorted(missing_foreign_keys)}")
+    not_null_columns = {(row["table_name"], row["column_name"]) for row in not_null_rows}
+    require(("question_matches", "document_id") in not_null_columns, "question_matches.document_id must be NOT NULL")
+    require(("question_matches", "page_no") in not_null_columns, "question_matches.page_no must be NOT NULL")
+    require(unique_index_count == 1, "projects(workspace_id, name) unique index missing")
+    require(vector_installed == 1, "pgvector extension is not installed")
+    require(embedding_type == "vector(1024)", f"chunks.embedding expected vector(1024), got {embedding_type}")
+    require(incompatible_completed_documents == 0, "completed searchable document compatibility fields are inconsistent")
+    require(invalid_page_stats == 0, "document_pages normalized_text or char_count is inconsistent with raw_text")
+    require(invalid_document_health == 0, "document health fields are inconsistent")
+    require(invalid_chunk_offsets == 0, "chunk offsets are inconsistent with normalized page text")
+    require(non_monotonic_chunk_offsets == 0, "chunk offsets are not monotonic within page chunk order")
+    require(inconsistent_matches == 0, "question_matches denormalized source fields are inconsistent with chunks")
 
 
 def check_project_created() -> None:
@@ -264,9 +558,8 @@ def check_question_matches_with_source() -> None:
 
 
 def seed_match_missing_source() -> None:
-    from scripts.seed_missing_source import main as seed
-
-    seed()
+    seed_globals = runpy.run_path("scripts/seed_missing_source.py")
+    seed_globals["main"]()
 
 
 def check_missing_source_not_visible() -> None:
@@ -308,6 +601,7 @@ def main() -> None:
     check = os.getenv("CHECK", "schema-v0.1.0")
     checks = {
         "schema-v0.1.0": check_schema,
+        "v020-schema": check_v020_schema,
         "project-created": check_project_created,
         "project-summary": check_project_summary,
         "project-count-unchanged": check_project_count_unchanged,
