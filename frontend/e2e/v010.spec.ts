@@ -8,6 +8,11 @@ test.describe.configure({ mode: "serial" });
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
+type Project = {
+  id: number;
+  name: string;
+};
+
 async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByLabel("新建项目").fill(name);
@@ -43,6 +48,50 @@ test("v020-first-empty-project：首次空工作台不使用默认项目名", as
   await expect(page.getByLabel("新建项目")).toHaveValue("");
   await expect(page.getByPlaceholder("输入课程或复习项目名称")).toBeVisible();
   await expect(page.getByText("高等数学（上）期末复习")).toHaveCount(0);
+});
+
+test("v020-project-create：新建项目不使用演示默认名", async ({ page }) => {
+  await page.goto("/");
+  const name = `线性代数期末 ${Date.now()}`;
+  await page.getByLabel("新建项目").fill(name);
+  await page.getByRole("button", { name: "创建项目" }).click();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(name) })).toBeVisible();
+  await expect(page.getByText("高等数学（上）期末复习")).toHaveCount(0);
+});
+
+test("v020-project-unique-name：重名项目被前端展示为固定错误", async ({ page }) => {
+  await page.goto("/");
+  const name = "高性能计算期末";
+  await page.getByLabel("新建项目").fill(name);
+  await page.getByRole("button", { name: "创建项目" }).click();
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+
+  await page.getByLabel("新建项目").fill(name);
+  await page.getByRole("button", { name: "创建项目" }).click();
+  await expect(page.getByText("项目名称已存在")).toBeVisible();
+
+  const response = await page.request.get(`${apiUrl}/projects`);
+  expect(response.status()).toBe(200);
+  const projects = (await response.json()) as Project[];
+  expect(projects.filter((project) => project.name === name)).toHaveLength(1);
+});
+
+test("v020-project-name-limits：空名超长名被拦截且 80 字符合法", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByLabel("新建项目").fill(" ");
+  await page.getByRole("button", { name: "创建项目" }).click();
+  await expect(page.getByText("项目名称不能为空")).toBeVisible();
+
+  await page.getByLabel("新建项目").fill("课".repeat(81));
+  await page.getByRole("button", { name: "创建项目" }).click();
+  await expect(page.getByText("项目名称不能超过 80 个字符")).toBeVisible();
+
+  const validName = "课".repeat(80);
+  await page.getByLabel("新建项目").fill(validName);
+  await page.getByRole("button", { name: "创建项目" }).click();
+  await expect(page.getByRole("heading", { name: validName })).toBeVisible();
 });
 
 test("question-input：无资料时提交题目被拦截", async ({ page }) => {

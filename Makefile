@@ -82,7 +82,7 @@ evidence-package-with-tests:
 	uv run --project backend python scripts/collect_evidence.py --with-tests
 
 verify-e2e:
-	@if [[ "$$SCENARIO" == "v020-first-empty-project" ]]; then \
+	@if [[ "$$SCENARIO" =~ ^(v020-first-empty-project|v020-project-create|v020-project-unique-name|v020-project-name-limits)$$ ]]; then \
 		uv run --project backend python scripts/dev_check.py --skip-embedding; \
 	else \
 		uv run --project backend python scripts/dev_check.py; \
