@@ -44,6 +44,8 @@ type DocumentRow = {
   failed_stage: string | null;
   failure_code: string | null;
   failure_reason: string | null;
+  created_at: string;
+  processed_at: string | null;
   updated_at: string;
 };
 
@@ -87,6 +89,7 @@ export default function Home() {
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [documentToDelete, setDocumentToDelete] = useState<DocumentRow | null>(null);
   const [documentDialogError, setDocumentDialogError] = useState("");
+  const [selectedDocument, setSelectedDocument] = useState<DocumentRow | null>(null);
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QuestionResult | null>(null);
   const [error, setError] = useState("");
@@ -105,6 +108,12 @@ export default function Home() {
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
   }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!selectedDocument) return;
+    const currentDocument = documents.find((document) => document.id === selectedDocument.id);
+    setSelectedDocument(currentDocument ?? null);
+  }, [documents, selectedDocument]);
 
   async function refresh(preferredProjectId?: number) {
     const requestSeq = ++refreshSeqRef.current;
@@ -153,6 +162,7 @@ export default function Home() {
     setActiveProjectId(projectId);
     activeProjectIdRef.current = projectId;
     setResult(null);
+    setSelectedDocument(null);
     setError("");
     const nextDocuments = await request<DocumentRow[]>(`/projects/${projectId}/documents`);
     if (requestSeq === refreshSeqRef.current && activeProjectIdRef.current === projectId) {
@@ -212,6 +222,7 @@ export default function Home() {
       setActiveProjectId(project.id);
       activeProjectIdRef.current = project.id;
       setResult(null);
+      setSelectedDocument(null);
       await refresh(project.id);
       setProjectDialog(null);
       setProjectFormName("");
@@ -256,6 +267,7 @@ export default function Home() {
     try {
       await request(`/projects/${activeProject.id}`, { method: "DELETE" });
       setResult(null);
+      setSelectedDocument(null);
       await refresh();
       setProjectDialog(null);
     } catch (err) {
@@ -285,6 +297,7 @@ export default function Home() {
       await request(`/documents/${documentToDelete.id}`, { method: "DELETE" });
       await refresh(projectId);
       setDocumentToDelete(null);
+      setSelectedDocument(null);
     } catch (err) {
       setDocumentDialogError(err instanceof Error ? err.message : "删除资料失败");
     } finally {
@@ -510,9 +523,18 @@ export default function Home() {
                 ) : documents.length === 0 ? (
                   <p className="py-8 text-sm text-[#516050]">项目内还没有资料。</p>
                 ) : (
-                  documents.map((document) => <DocumentRowView key={document.id} document={document} onDelete={openDeleteDocumentDialog} />)
+                  documents.map((document) => (
+                    <DocumentRowView
+                      key={document.id}
+                      document={document}
+                      selected={selectedDocument?.id === document.id}
+                      onSelect={setSelectedDocument}
+                      onDelete={openDeleteDocumentDialog}
+                    />
+                  ))
                 )}
               </div>
+              {selectedDocument && <DocumentDetail document={selectedDocument} />}
             </section>
 
             <section className="paper-panel">
@@ -820,20 +842,34 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function DocumentRowView({ document, onDelete }: { document: DocumentRow; onDelete: (document: DocumentRow) => void }) {
+function DocumentRowView({
+  document,
+  selected,
+  onSelect,
+  onDelete
+}: {
+  document: DocumentRow;
+  selected: boolean;
+  onSelect: (document: DocumentRow) => void;
+  onDelete: (document: DocumentRow) => void;
+}) {
   return (
     <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4">
       <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-md bg-[#e5efe0] text-[#315f43]">
         <FileText size={18} />
       </div>
-      <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => onSelect(document)}
+        className={`focus-ring min-w-0 rounded-md px-2 py-1 text-left ${selected ? "bg-[#edf6e9] ring-1 ring-[#bfd3bf]" : "hover:bg-[#f8fbf4]"}`}
+      >
         <p className="truncate text-sm font-semibold text-[#26382d]">{document.filename}</p>
         <p className="mt-1 text-xs text-[#516050]">
-          {document.page_count ? `${document.page_count} 页` : "等待页数"} · {document.text_quality_label} · {document.chunk_count} 个片段 ·{" "}
-          {document.searchable ? "可检索" : "不可检索"}
+          {displayPages(document.page_count)} · {document.text_quality_label} · {document.chunk_count} 个片段 ·{" "}
+          {document.searchable ? "可检索" : "不可检索"} · 最近处理 {formatDateTime(document.processed_at)}
           {document.failure_reason ? ` · ${document.failure_reason}` : ""}
         </p>
-      </div>
+      </button>
       <div className="flex shrink-0 items-center gap-2">
         <Status value={document.status} />
         <button
@@ -845,6 +881,42 @@ function DocumentRowView({ document, onDelete }: { document: DocumentRow; onDele
           删除资料
         </button>
       </div>
+    </div>
+  );
+}
+
+function DocumentDetail({ document }: { document: DocumentRow }) {
+  return (
+    <section className="mt-5 border-t border-[#dce4d7] pt-5" data-testid="document-detail">
+      <div className="mb-4 flex items-center gap-2 text-[#203a2b]">
+        <FileText size={18} />
+        <h4 className="text-base font-semibold">资料详情</h4>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-5 gap-y-3 text-sm max-md:grid-cols-1">
+        <DetailItem testId="filename" label="文件名" value={document.filename} />
+        <DetailItem testId="content-type" label="内容类型" value={document.content_type} />
+        <DetailItem testId="page-count" label="页数" value={displayNumber(document.page_count)} />
+        <DetailItem testId="extractable-page-count" label="可提取文字页数" value={displayNumber(document.extractable_page_count)} />
+        <DetailItem testId="text-quality" label="文字层质量" value={document.text_quality_label} />
+        <DetailItem testId="chunk-count" label="chunk 数" value={displayNumber(document.chunk_count)} />
+        <DetailItem testId="searchable" label="可检索状态" value={document.searchable ? "可检索" : "不可检索"} />
+        <DetailItem testId="status" label="处理状态" value={statusLabel(document.status)} />
+        <DetailItem testId="processing-stage" label="处理阶段" value={processingStageLabel(document.processing_stage)} />
+        <DetailItem testId="failed-stage" label="失败阶段" value={document.failed_stage ? processingStageLabel(document.failed_stage) : "无"} />
+        <DetailItem testId="failure-code" label="失败码" value={document.failure_code ?? "无"} />
+        <DetailItem testId="failure-reason" label="失败原因" value={document.failure_reason ?? "无"} />
+        <DetailItem testId="created-at" label="创建时间" value={formatDateTime(document.created_at)} />
+        <DetailItem testId="processed-at" label="最近处理时间" value={formatDateTime(document.processed_at)} />
+      </dl>
+    </section>
+  );
+}
+
+function DetailItem({ testId, label, value }: { testId: string; label: string; value: string }) {
+  return (
+    <div className="min-w-0" data-testid={`document-detail-${testId}`}>
+      <dt className="text-xs font-semibold text-[#637061]">{label}</dt>
+      <dd className="mt-1 break-words text-[#25382d]">{value}</dd>
     </div>
   );
 }
@@ -888,6 +960,36 @@ function statusLabel(value: string) {
     unsupported: "不支持"
   };
   return labels[value] ?? value;
+}
+
+function processingStageLabel(value: string) {
+  const labels: Record<string, string> = {
+    uploaded: "已上传",
+    extracting_text: "提取文本",
+    chunking: "切分片段",
+    embedding: "生成向量",
+    indexing: "写入索引",
+    completed: "完成",
+    failed: "失败"
+  };
+  return labels[value] ?? value;
+}
+
+function displayNumber(value: number | null) {
+  return value === null ? "无" : String(value);
+}
+
+function displayPages(value: number | null) {
+  return value === null ? "等待页数" : `${value} 页`;
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "无";
+  const date = new Date(value);
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds()
+  )}`;
 }
 
 function hasSource(match: Match) {

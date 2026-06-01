@@ -26,6 +26,14 @@ type QuestionDetail = {
   matches: unknown[];
 };
 
+type DocumentDetailsSeed = {
+  project_id: number;
+  project_name: string;
+  completed_id: number;
+  failed_id: number;
+  unsupported_id: number;
+};
+
 async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByRole("button", { name: "新建项目" }).click();
@@ -47,6 +55,21 @@ function seedProjectWithCounts() {
     encoding: "utf-8"
   }).trim();
   return JSON.parse(output) as ProjectSeed;
+}
+
+function seedDocumentDetails() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_document_details.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as DocumentDetailsSeed;
+}
+
+async function expectDetailItem(page: Page, testId: string, label: string, value: string) {
+  const item = page.getByTestId(`document-detail-${testId}`);
+  await expect(item).toContainText(label);
+  await expect(item).toContainText(value);
 }
 
 async function uploadMaterial(page: Page) {
@@ -220,6 +243,69 @@ test("v020-document-delete：资料删除确认后移除资料且保留题目记
   expect(questionResponse.status()).toBe(200);
   const question = (await questionResponse.json()) as QuestionDetail;
   expect(question.matches).toHaveLength(0);
+});
+
+test("v020-document-health：资料列表展示健康信息和不可检索原因", async ({ page }) => {
+  const seed = seedDocumentDetails();
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+  const library = page.getByTestId("material-library");
+  await expect(library).toContainText("detail-completed.pdf");
+  await expect(library).toContainText("2 页 · 良好 · 1 个片段 · 可检索 · 最近处理 2026-01-02 03:04:05");
+  await expect(library).toContainText("detail-failed.pdf");
+  await expect(library).toContainText("0 页 · 不可检索 · 0 个片段 · 不可检索 · 最近处理 2026-01-02 03:04:05");
+  await expect(library).toContainText("PDF 文件损坏，无法读取");
+  await expect(library).toContainText("detail-scanned.pdf");
+  await expect(library).toContainText("1 页 · 不可检索 · 0 个片段 · 不可检索 · 最近处理 2026-01-02 03:04:05");
+  await expect(library).toContainText("PDF 无可提取文字层，v0.2.0 不进入 OCR");
+});
+
+test("v020-document-detail-fields：资料详情展示完成失败和 unsupported 固定字段", async ({ page }) => {
+  const seed = seedDocumentDetails();
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+  await page.getByRole("button", { name: /detail-completed\.pdf/ }).click();
+  let detail = page.getByTestId("document-detail");
+  await expect(detail).toBeVisible();
+  await expectDetailItem(page, "filename", "文件名", "detail-completed.pdf");
+  await expectDetailItem(page, "content-type", "内容类型", "application/pdf");
+  await expectDetailItem(page, "page-count", "页数", "2");
+  await expectDetailItem(page, "extractable-page-count", "可提取文字页数", "2");
+  await expectDetailItem(page, "text-quality", "文字层质量", "良好");
+  await expectDetailItem(page, "chunk-count", "chunk 数", "1");
+  await expectDetailItem(page, "searchable", "可检索状态", "可检索");
+  await expectDetailItem(page, "status", "处理状态", "完成");
+  await expectDetailItem(page, "processing-stage", "处理阶段", "完成");
+  await expectDetailItem(page, "failed-stage", "失败阶段", "无");
+  await expectDetailItem(page, "failure-code", "失败码", "无");
+  await expectDetailItem(page, "failure-reason", "失败原因", "无");
+  await expectDetailItem(page, "created-at", "创建时间", "2026-01-01 01:02:03");
+  await expectDetailItem(page, "processed-at", "最近处理时间", "2026-01-02 03:04:05");
+
+  await page.getByRole("button", { name: /detail-failed\.pdf/ }).click();
+  detail = page.getByTestId("document-detail");
+  await expect(detail).toBeVisible();
+  await expectDetailItem(page, "filename", "文件名", "detail-failed.pdf");
+  await expectDetailItem(page, "page-count", "页数", "0");
+  await expectDetailItem(page, "status", "处理状态", "失败");
+  await expectDetailItem(page, "failed-stage", "失败阶段", "提取文本");
+  await expectDetailItem(page, "failure-code", "失败码", "invalid_pdf");
+  await expectDetailItem(page, "failure-reason", "失败原因", "PDF 文件损坏，无法读取");
+  await expectDetailItem(page, "processed-at", "最近处理时间", "2026-01-02 03:04:05");
+
+  await page.getByRole("button", { name: /detail-scanned\.pdf/ }).click();
+  detail = page.getByTestId("document-detail");
+  await expect(detail).toBeVisible();
+  await expectDetailItem(page, "filename", "文件名", "detail-scanned.pdf");
+  await expectDetailItem(page, "page-count", "页数", "1");
+  await expectDetailItem(page, "extractable-page-count", "可提取文字页数", "0");
+  await expectDetailItem(page, "text-quality", "文字层质量", "不可检索");
+  await expectDetailItem(page, "searchable", "可检索状态", "不可检索");
+  await expectDetailItem(page, "status", "处理状态", "不支持");
+  await expectDetailItem(page, "failure-code", "失败码", "no_text_layer");
+  await expectDetailItem(page, "failure-reason", "失败原因", "PDF 无可提取文字层，v0.2.0 不进入 OCR");
 });
 
 test("question-input：无资料时提交题目被拦截", async ({ page }) => {
