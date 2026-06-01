@@ -5,6 +5,15 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Git ref to build, for example v0.1.0"
+        required: false
+        default: ""
+      release_tag:
+        description: "Optional release tag to backfill release image tags, for example v0.1.0"
+        required: false
+        default: ""
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -24,12 +33,50 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+
+      - name: Set build metadata
+        id: build_meta
+        env:
+          DISPATCH_SOURCE_REF: ${{ inputs.source_ref }}
+          DISPATCH_RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/v* ]]; then
+            release_tag="${GITHUB_REF_NAME}"
+            version="${release_tag#v}"
+            is_release=true
+          elif [[ -n "${DISPATCH_RELEASE_TAG}" ]]; then
+            if [[ ! "${DISPATCH_RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "error: release_tag must match vX.Y.Z, got: ${DISPATCH_RELEASE_TAG}" >&2
+              exit 1
+            fi
+            if [[ "${DISPATCH_SOURCE_REF}" != "${DISPATCH_RELEASE_TAG}" && "${DISPATCH_SOURCE_REF}" != "refs/tags/${DISPATCH_RELEASE_TAG}" ]]; then
+              echo "error: source_ref must point at the same tag as release_tag for release backfill" >&2
+              echo "error: expected source_ref=${DISPATCH_RELEASE_TAG} or refs/tags/${DISPATCH_RELEASE_TAG}, got: ${DISPATCH_SOURCE_REF}" >&2
+              exit 1
+            fi
+            release_tag="${DISPATCH_RELEASE_TAG}"
+            version="${release_tag#v}"
+            is_release=true
+          else
+            release_tag=""
+            version=edge
+            is_release=false
+          fi
+
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "is_release=${is_release}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GHCR
         uses: docker/login-action@v4
@@ -52,10 +99,10 @@ jobs:
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=semver,pattern={{version}},value=${{ steps.build_meta.outputs.release_tag }},enable=${{ steps.build_meta.outputs.is_release == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.build_meta.outputs.release_tag }},enable=${{ steps.build_meta.outputs.is_release == 'true' }}
+            type=raw,value=latest,enable=${{ steps.build_meta.outputs.is_release == 'true' }}
+            type=raw,value=edge,enable=${{ steps.build_meta.outputs.is_release != 'true' }}
 
       - name: Extract Docker Hub metadata
         id: meta_dockerhub
@@ -64,21 +111,10 @@ jobs:
         with:
           images: ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}},enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=latest,enable=${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=edge,enable=${{ github.event_name == 'workflow_dispatch' }}
-
-      - name: Set build metadata
-        id: build_meta
-        shell: bash
-        run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=edge" >> "$GITHUB_OUTPUT"
-          fi
-          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+            type=semver,pattern={{version}},value=${{ steps.build_meta.outputs.release_tag }},enable=${{ steps.build_meta.outputs.is_release == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.build_meta.outputs.release_tag }},enable=${{ steps.build_meta.outputs.is_release == 'true' }}
+            type=raw,value=latest,enable=${{ steps.build_meta.outputs.is_release == 'true' }}
+            type=raw,value=edge,enable=${{ steps.build_meta.outputs.is_release != 'true' }}
 
       - name: Build and push
         uses: docker/build-push-action@v7
@@ -88,7 +124,7 @@ jobs:
           push: true
           build-args: |
             SUTON_VERSION=${{ steps.build_meta.outputs.version }}
-            SUTON_COMMIT=${{ github.sha }}
+            SUTON_COMMIT=${{ steps.build_meta.outputs.commit }}
             SUTON_BUILD_DATE=${{ steps.build_meta.outputs.date }}
             NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
           tags: |
@@ -100,9 +136,9 @@ jobs:
 
       - name: Extract release notes from CHANGELOG
         id: changelog
-        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ steps.build_meta.outputs.is_release == 'true' }}
         shell: bash
-        run: ./scripts/extract-changelog-release.sh "${GITHUB_REF_NAME}"
+        run: ./scripts/extract-changelog-release.sh "${{ steps.build_meta.outputs.release_tag }}"
 
       - name: Create GitHub Release
         if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
@@ -116,7 +152,7 @@ jobs:
             --verify-tag
 
       - name: Sync Docker Hub description
-        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' && steps.build_meta.outputs.is_release == 'true' }}
         uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ env.DOCKERHUB_USERNAME }}
