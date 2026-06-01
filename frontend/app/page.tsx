@@ -672,6 +672,7 @@ export default function Home() {
               {sourcedMatches.map((match) => (
                 <article
                   key={match.id}
+                  aria-current={sourceDetail?.id === match.id ? "true" : undefined}
                   className={`source-card ${sourceDetail?.id === match.id ? "ring-2 ring-[#7fa37e]" : ""}`}
                   data-testid="source-card"
                 >

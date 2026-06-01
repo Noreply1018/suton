@@ -40,6 +40,7 @@ type SourceReaderSeed = {
   question_id: number;
   document_id: number;
   match_id: number;
+  second_match_id: number;
 };
 
 async function createProject(page: Page, prefix: string) {
@@ -362,9 +363,9 @@ test("v020-source-reader-open：点击来源打开 PDF 页与来源详情", asyn
   const seed = seedSourceReader();
   await page.goto(`/?questionId=${seed.question_id}`);
   await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
-  await expect(page.getByTestId("source-card")).toContainText("source-reader.pdf 第 1 页");
+  await expect(page.getByTestId("source-card").first()).toContainText("source-reader.pdf 第 1 页");
 
-  await page.getByTestId("source-card").getByRole("button", { name: /source-reader\.pdf/ }).click();
+  await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
 
   const reader = page.getByTestId("source-reader");
   await expect(reader).toBeVisible();
@@ -381,6 +382,38 @@ test("v020-source-reader-open：点击来源打开 PDF 页与来源详情", asyn
   );
   await expect(reader.getByRole("button", { name: "上一页" })).toBeDisabled();
   await expect(reader.getByRole("button", { name: "下一页" })).toBeEnabled();
+  await expect(reader.getByRole("button", { name: "回到命中页" })).toBeDisabled();
+});
+
+test("v020-source-reader-switch：切换来源原地替换 PDF 页和段落详情", async ({ page }) => {
+  const seed = seedSourceReader();
+  await page.goto(`/?questionId=${seed.question_id}`);
+  await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+  await expect(page.getByTestId("source-card")).toHaveCount(2);
+
+  await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+  await expect(page.getByTestId("source-card").first()).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("source-reader-source-text")).toContainText("source reader hit");
+  await expect(page.getByTestId("source-reader-pdf")).toHaveAttribute(
+    "src",
+    new RegExp(`/documents/${seed.document_id}/file#page=1$`)
+  );
+
+  await page.getByTestId("source-card").nth(1).getByRole("button", { name: /source-reader\.pdf/ }).click();
+  const reader = page.getByTestId("source-reader");
+  await expect(page.getByTestId("source-reader")).toHaveCount(1);
+  await expect(page.getByTestId("source-card").nth(1)).toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("source-card").first()).not.toHaveAttribute("aria-current", "true");
+  await expect(page.getByTestId("source-reader-meta")).toContainText("第 2 / 2 页 · 排序 2 · 可参考");
+  await expect(page.getByTestId("source-reader-hit-reason")).toContainText("seed source switch fixture");
+  await expect(page.getByTestId("source-reader-source-text")).toContainText("second source hit");
+  await expect(page.getByTestId("source-reader-context")).toContainText("switch reader before second source hit switch reader after");
+  await expect(page.getByTestId("source-reader-score")).toContainText("pgvector 相似度 0.7300");
+  await expect(page.getByTestId("source-reader-pdf")).toHaveAttribute(
+    "src",
+    new RegExp(`/documents/${seed.document_id}/file#page=2$`)
+  );
+  await expect(reader.getByRole("button", { name: "下一页" })).toBeDisabled();
   await expect(reader.getByRole("button", { name: "回到命中页" })).toBeDisabled();
 });
 
