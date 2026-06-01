@@ -64,6 +64,12 @@ type ProcessingPollingSeed = {
   document_ids: number[];
 };
 
+type QuestionHistoryLongTextSeed = {
+  project_id: number;
+  project_name: string;
+  question_ids: number[];
+};
+
 async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByRole("button", { name: "新建项目" }).click();
@@ -148,6 +154,15 @@ function seedProcessingPolling() {
     encoding: "utf-8"
   }).trim();
   return JSON.parse(output) as ProcessingPollingSeed;
+}
+
+function seedQuestionHistoryLongText() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_question_history_long_text.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as QuestionHistoryLongTextSeed;
 }
 
 async function expectDetailItem(page: Page, testId: string, label: string, value: string) {
@@ -871,6 +886,92 @@ test("visual-mobile-workspace：生成窄屏工作台截图并检查无横向溢
         .map((element) => element.textContent?.trim() ?? element.getAttribute("aria-label") ?? "")
     );
     expect(overflowingButtons).toEqual([]);
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("v020-question-history-long-text：长题干历史列表不撑开页面", async ({ page }) => {
+  const seed = seedQuestionHistoryLongText();
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+    const history = page.getByTestId("question-history");
+    const historyList = page.getByTestId("question-history-list");
+    await expect(history).toBeVisible();
+    await expect(page.getByTestId("question-history-item")).toHaveCount(20);
+    await expect(page.getByTestId("question-history-item").first()).toContainText("第 01 题");
+    await expect(page.getByTestId("question-history-item").nth(19)).toContainText("第 20 题");
+
+    const metrics = await page.evaluate(() => {
+      const list = document.querySelector('[data-testid="question-history-list"]');
+      const workspace = document.querySelector('[data-testid="trace-workspace"]');
+      const items = Array.from(document.querySelectorAll('[data-testid="question-history-item"]'));
+      if (!list || !workspace || items.length === 0) {
+        throw new Error("question history metrics target missing");
+      }
+      const itemBoxes = items.map((item) => item.getBoundingClientRect());
+      return {
+        listClientHeight: list.clientHeight,
+        listScrollHeight: list.scrollHeight,
+        workspaceRight: workspace.getBoundingClientRect().right,
+        viewportWidth: document.documentElement.clientWidth,
+        documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        maxItemHeight: Math.max(...itemBoxes.map((box) => box.height)),
+        maxItemRight: Math.max(...itemBoxes.map((box) => box.right))
+      };
+    });
+    expect(metrics.listClientHeight).toBeLessThanOrEqual(302);
+    expect(metrics.listScrollHeight).toBeGreaterThan(metrics.listClientHeight);
+    expect(metrics.maxItemHeight).toBeLessThanOrEqual(112);
+    expect(metrics.maxItemRight).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+    expect(metrics.workspaceRight).toBeLessThanOrEqual(metrics.viewportWidth + 1);
+    expect(metrics.documentOverflow).toBeLessThanOrEqual(1);
+
+    await page.getByTestId("question-history-item").first().click();
+    await expect(page.getByTestId("question-history-item").first()).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("evidence-preview")).toContainText("没有匹配资料。系统不会生成无来源答案。");
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("visual-question-history-long-text：生成长题干历史布局截图", async ({ page }) => {
+  const seed = seedQuestionHistoryLongText();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const desktopScreenshotPath = resolve(evidenceDir, "1440x900-question-history-long-text.png");
+  const mobileScreenshotPath = resolve(evidenceDir, "390x844-question-history-long-text.png");
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    for (const viewport of [
+      { width: 1440, height: 900, screenshotPath: desktopScreenshotPath },
+      { width: 390, height: 844, screenshotPath: mobileScreenshotPath }
+    ]) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+      await expect(page.getByTestId("question-history-item")).toHaveCount(20);
+      await page.screenshot({ path: viewport.screenshotPath, fullPage: true });
+      expect(statSync(viewport.screenshotPath).size).toBeGreaterThan(1000);
+
+      const hardErrors = await page.evaluate(() => {
+        const overflow = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+        const list = document.querySelector('[data-testid="question-history-list"]');
+        const items = Array.from(document.querySelectorAll('[data-testid="question-history-item"]'));
+        return {
+          overflow,
+          listHasInternalScroll: list ? list.scrollHeight > list.clientHeight : false,
+          maxItemHeight: items.length ? Math.max(...items.map((item) => item.getBoundingClientRect().height)) : 0
+        };
+      });
+      expect(hardErrors.overflow).toBeLessThanOrEqual(1);
+      expect(hardErrors.listHasInternalScroll).toBe(true);
+      expect(hardErrors.maxItemHeight).toBeLessThanOrEqual(112);
+    }
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());

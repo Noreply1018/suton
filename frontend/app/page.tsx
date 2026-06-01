@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Clock3,
   Trash2,
   X
 } from "lucide-react";
@@ -81,6 +82,20 @@ type QuestionResult = {
   matches: Match[];
 };
 
+type QuestionHistoryItem = {
+  id: number;
+  project_id: number;
+  text: string;
+  status: string;
+  failure_code: string | null;
+  failure_reason: string | null;
+  last_search_at: string | null;
+  updated_at: string;
+  match_count: number;
+  top_confidence_level: string | null;
+  top_confidence_label: string | null;
+};
+
 type SourceDetail = Match & {
   filename: string;
   page_count: number;
@@ -113,6 +128,7 @@ export default function Home() {
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QuestionResult | null>(null);
+  const [questionHistory, setQuestionHistory] = useState<QuestionHistoryItem[]>([]);
   const [sourceDetail, setSourceDetail] = useState<SourceDetail | null>(null);
   const [sourceDetailError, setSourceDetailError] = useState("");
   const [sourceReaderOpen, setSourceReaderOpen] = useState(false);
@@ -176,12 +192,17 @@ export default function Home() {
     setActiveProjectId(nextActive);
     activeProjectIdRef.current = nextActive;
     if (nextActive) {
-      const nextDocuments = await request<DocumentRow[]>(`/projects/${nextActive}/documents`);
+      const [nextDocuments, nextQuestionHistory] = await Promise.all([
+        request<DocumentRow[]>(`/projects/${nextActive}/documents`),
+        request<QuestionHistoryItem[]>(`/projects/${nextActive}/questions`)
+      ]);
       if (requestSeq === refreshSeqRef.current && activeProjectIdRef.current === nextActive) {
         setDocuments(nextDocuments);
+        setQuestionHistory(nextQuestionHistory);
       }
     } else {
       setDocuments([]);
+      setQuestionHistory([]);
     }
   }
 
@@ -215,10 +236,15 @@ export default function Home() {
     setSourceReaderOpen(false);
     setCurrentSourcePage(null);
     setSelectedDocument(null);
+    setQuestionHistory([]);
     setError("");
-    const nextDocuments = await request<DocumentRow[]>(`/projects/${projectId}/documents`);
+    const [nextDocuments, nextQuestionHistory] = await Promise.all([
+      request<DocumentRow[]>(`/projects/${projectId}/documents`),
+      request<QuestionHistoryItem[]>(`/projects/${projectId}/questions`)
+    ]);
     if (requestSeq === refreshSeqRef.current && activeProjectIdRef.current === projectId) {
       setDocuments(nextDocuments);
+      setQuestionHistory(nextQuestionHistory);
     }
   }
 
@@ -688,6 +714,19 @@ export default function Home() {
                   </button>
                 </div>
               </form>
+              <QuestionHistoryList
+                items={questionHistory}
+                activeQuestionId={result?.id ?? null}
+                onSelect={(item) => {
+                  setError("");
+                  request<QuestionResult>(`/questions/${item.id}`)
+                    .then((detail) => {
+                      setResult(detail);
+                      setQuestion(detail.text);
+                    })
+                    .catch((err: Error) => setError(err.message));
+                }}
+              />
             </section>
           </div>
         </section>
@@ -1350,6 +1389,55 @@ function DetailItem({ testId, label, value }: { testId: string; label: string; v
   );
 }
 
+function QuestionHistoryList({
+  items,
+  activeQuestionId,
+  onSelect
+}: {
+  items: QuestionHistoryItem[];
+  activeQuestionId: number | null;
+  onSelect: (item: QuestionHistoryItem) => void;
+}) {
+  return (
+    <section className="mt-5 border-t border-[#dce4d7] pt-4" data-testid="question-history">
+      <div className="mb-3 flex items-center gap-2 text-[#203a2b]">
+        <Clock3 size={18} strokeWidth={1.75} />
+        <h4 className="text-base font-semibold">题目历史</h4>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm leading-6 text-[#516050]">还没有检索过的题目。</p>
+      ) : (
+        <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1 max-md:max-h-[300px]" data-testid="question-history-list">
+          {items.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-current={activeQuestionId === item.id ? "true" : undefined}
+              onClick={() => onSelect(item)}
+              className={`focus-ring grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-md border px-3 py-3 text-left transition ${
+                activeQuestionId === item.id
+                  ? "border-[#9dbb9b] bg-[#edf6e9] text-[#203a2b]"
+                  : "border-[#dce4d7] bg-[#fbfcf8] text-[#26382d] hover:bg-[#f8fbf4]"
+              }`}
+              data-testid="question-history-item"
+            >
+              <span className="min-w-0">
+                <span className="block max-h-12 overflow-hidden break-words text-sm font-semibold leading-6">{item.text}</span>
+                <span className="mt-2 block truncate text-xs text-[#516050]">
+                  {questionStatusLabel(item.status)} · {item.match_count} 条来源 · 最近检索 {formatDateTime(item.last_search_at ?? item.updated_at)}
+                </span>
+              </span>
+              <span className="shrink-0 rounded-full border border-[#c8d8c7] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43]">
+                {item.top_confidence_label ?? questionStatusLabel(item.status)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProcessingTrack({ document }: { document: DocumentRow }) {
   return (
     <div className="mt-3 grid gap-2" data-testid={`processing-track-${document.id}`}>
@@ -1447,6 +1535,16 @@ function statusLabel(value: string) {
     completed: "完成",
     failed: "失败",
     unsupported: "不支持"
+  };
+  return labels[value] ?? value;
+}
+
+function questionStatusLabel(value: string) {
+  const labels: Record<string, string> = {
+    completed: "已完成",
+    searching: "检索中",
+    no_reliable_source: "无可靠来源",
+    failed: "失败"
   };
   return labels[value] ?? value;
 }
