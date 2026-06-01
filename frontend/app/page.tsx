@@ -33,9 +33,18 @@ type Project = {
 type DocumentRow = {
   id: number;
   filename: string;
+  content_type: string;
   page_count: number | null;
+  extractable_page_count: number;
+  chunk_count: number;
+  text_quality_label: string;
+  searchable: boolean;
   status: string;
+  processing_stage: string;
+  failed_stage: string | null;
+  failure_code: string | null;
   failure_reason: string | null;
+  updated_at: string;
 };
 
 type Match = {
@@ -76,6 +85,8 @@ export default function Home() {
   const [projectFormName, setProjectFormName] = useState("");
   const [projectDialogError, setProjectDialogError] = useState("");
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [documentToDelete, setDocumentToDelete] = useState<DocumentRow | null>(null);
+  const [documentDialogError, setDocumentDialogError] = useState("");
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QuestionResult | null>(null);
   const [error, setError] = useState("");
@@ -249,6 +260,33 @@ export default function Home() {
       setProjectDialog(null);
     } catch (err) {
       setProjectDialogError(err instanceof Error ? err.message : "删除项目失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openDeleteDocumentDialog(document: DocumentRow) {
+    setDocumentToDelete(document);
+    setDocumentDialogError("");
+  }
+
+  function closeDeleteDocumentDialog() {
+    if (busy) return;
+    setDocumentToDelete(null);
+    setDocumentDialogError("");
+  }
+
+  async function deleteDocument() {
+    if (!documentToDelete || !activeProject) return;
+    setDocumentDialogError("");
+    setBusy(true);
+    const projectId = activeProject.id;
+    try {
+      await request(`/documents/${documentToDelete.id}`, { method: "DELETE" });
+      await refresh(projectId);
+      setDocumentToDelete(null);
+    } catch (err) {
+      setDocumentDialogError(err instanceof Error ? err.message : "删除资料失败");
     } finally {
       setBusy(false);
     }
@@ -472,7 +510,7 @@ export default function Home() {
                 ) : documents.length === 0 ? (
                   <p className="py-8 text-sm text-[#516050]">项目内还没有资料。</p>
                 ) : (
-                  documents.map((document) => <DocumentRowView key={document.id} document={document} />)
+                  documents.map((document) => <DocumentRowView key={document.id} document={document} onDelete={openDeleteDocumentDialog} />)
                 )}
               </div>
             </section>
@@ -578,6 +616,15 @@ export default function Home() {
       )}
       {projectDialog === "delete" && activeProject && (
         <ProjectDeleteDialog project={activeProject} error={projectDialogError} busy={busy} onClose={closeProjectDialog} onConfirm={deleteProject} />
+      )}
+      {documentToDelete && (
+        <DocumentDeleteDialog
+          document={documentToDelete}
+          error={documentDialogError}
+          busy={busy}
+          onClose={closeDeleteDocumentDialog}
+          onConfirm={deleteDocument}
+        />
       )}
     </main>
   );
@@ -687,6 +734,49 @@ function ProjectDeleteDialog({
   );
 }
 
+function DocumentDeleteDialog({
+  document,
+  error,
+  busy,
+  onClose,
+  onConfirm
+}: {
+  document: DocumentRow;
+  error: string;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <DialogFrame title="删除资料" onClose={onClose}>
+      <div className="space-y-3 text-sm leading-6 text-[#3f5142]">
+        <p className="font-semibold text-[#1f3428]">{document.filename}</p>
+        <p>将删除该 PDF、页面文本、索引和相关来源结果。题目记录会保留。</p>
+        {error && <p className="text-[#9d4d2f]">{error}</p>}
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onClose}
+          className="focus-ring rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#315f43] disabled:opacity-55"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onConfirm}
+          className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#9d4d2f] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
+        >
+          {busy && <Loader2 size={16} className="animate-spin" />}
+          删除资料
+        </button>
+      </div>
+    </DialogFrame>
+  );
+}
+
 function DialogFrame({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
     <div
@@ -730,7 +820,7 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function DocumentRowView({ document }: { document: DocumentRow }) {
+function DocumentRowView({ document, onDelete }: { document: DocumentRow; onDelete: (document: DocumentRow) => void }) {
   return (
     <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4">
       <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-md bg-[#e5efe0] text-[#315f43]">
@@ -739,11 +829,22 @@ function DocumentRowView({ document }: { document: DocumentRow }) {
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-[#26382d]">{document.filename}</p>
         <p className="mt-1 text-xs text-[#516050]">
-          {document.page_count ? `${document.page_count} 页` : "等待页数"}
+          {document.page_count ? `${document.page_count} 页` : "等待页数"} · {document.text_quality_label} · {document.chunk_count} 个片段 ·{" "}
+          {document.searchable ? "可检索" : "不可检索"}
           {document.failure_reason ? ` · ${document.failure_reason}` : ""}
         </p>
       </div>
-      <Status value={document.status} />
+      <div className="flex shrink-0 items-center gap-2">
+        <Status value={document.status} />
+        <button
+          type="button"
+          onClick={() => onDelete(document)}
+          className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec]"
+        >
+          <Trash2 size={14} />
+          删除资料
+        </button>
+      </div>
     </div>
   );
 }

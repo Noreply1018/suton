@@ -16,6 +16,14 @@ type Project = {
 type ProjectSeed = {
   id: number;
   name: string;
+  document_id: number;
+  document_filename: string;
+  question_id: number;
+};
+
+type QuestionDetail = {
+  id: number;
+  matches: unknown[];
 };
 
 async function createProject(page: Page, prefix: string) {
@@ -185,6 +193,33 @@ test("v020-project-delete-selection：删除当前项目后选择排序第一项
   }
   await expect(page.getByRole("heading", { name: "尚未创建项目" })).toBeVisible();
   await expect(page.getByTestId("v020-first-empty-project")).toContainText("添加第一份课程资料");
+});
+
+test("v020-document-delete：资料删除确认后移除资料且保留题目记录", async ({ page }) => {
+  const seed = seedProjectWithCounts();
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: seed.name })).toBeVisible();
+  await expect(page.getByTestId("material-library").getByText(seed.document_filename)).toBeVisible();
+  await expect(page.getByTestId("material-library")).toContainText("1 页 · 良好 · 1 个片段 · 可检索");
+
+  await page.getByTestId("material-library").getByRole("button", { name: "删除资料" }).click();
+  const dialog = page.getByRole("dialog", { name: "删除资料" });
+  await expect(dialog).toContainText(seed.document_filename);
+  await expect(dialog).toContainText("将删除该 PDF、页面文本、索引和相关来源结果。题目记录会保留。");
+  await dialog.getByRole("button", { name: "删除资料" }).click();
+
+  await expect(page.getByTestId("material-library").getByText(seed.document_filename)).toHaveCount(0);
+  await expect(page.getByTestId("material-library")).toContainText("项目内还没有资料。");
+
+  const questionsResponse = await page.request.get(`${apiUrl}/projects/${seed.id}/questions`);
+  expect(questionsResponse.status()).toBe(200);
+  const questions = (await questionsResponse.json()) as unknown[];
+  expect(questions).toHaveLength(1);
+
+  const questionResponse = await page.request.get(`${apiUrl}/questions/${seed.question_id}`);
+  expect(questionResponse.status()).toBe(200);
+  const question = (await questionResponse.json()) as QuestionDetail;
+  expect(question.matches).toHaveLength(0);
 });
 
 test("question-input：无资料时提交题目被拦截", async ({ page }) => {

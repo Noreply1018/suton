@@ -67,7 +67,18 @@ def main() -> None:
         )
         conn.commit()
 
-    print(json.dumps({"id": project["id"], "name": project_name}, ensure_ascii=False))
+    print(
+        json.dumps(
+            {
+                "id": project["id"],
+                "name": project_name,
+                "document_id": document["id"],
+                "document_filename": "e2e-project-delete.pdf",
+                "question_id": question["id"],
+            },
+            ensure_ascii=False,
+        )
+    )
 
 
 if __name__ == "__main__":
