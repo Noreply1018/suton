@@ -115,6 +115,7 @@ export default function Home() {
   const [result, setResult] = useState<QuestionResult | null>(null);
   const [sourceDetail, setSourceDetail] = useState<SourceDetail | null>(null);
   const [sourceDetailError, setSourceDetailError] = useState("");
+  const [sourceReaderOpen, setSourceReaderOpen] = useState(false);
   const [currentSourcePage, setCurrentSourcePage] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -147,6 +148,7 @@ export default function Home() {
   useEffect(() => {
     setSourceDetail(null);
     setSourceDetailError("");
+    setSourceReaderOpen(false);
     setCurrentSourcePage(null);
   }, [result?.id]);
 
@@ -210,6 +212,7 @@ export default function Home() {
     setResult(null);
     setSourceDetail(null);
     setSourceDetailError("");
+    setSourceReaderOpen(false);
     setCurrentSourcePage(null);
     setSelectedDocument(null);
     setError("");
@@ -404,6 +407,7 @@ export default function Home() {
     setResult(null);
     setSourceDetail(null);
     setSourceDetailError("");
+    setSourceReaderOpen(false);
     setCurrentSourcePage(null);
     setBusy(true);
     const projectId = activeProject.id;
@@ -447,10 +451,12 @@ export default function Home() {
       }
       setSourceDetail({ ...detail, page_count: document.page_count });
       setCurrentSourcePage(detail.page_no);
+      setSourceReaderOpen(true);
     } catch (err) {
       setSourceDetail(null);
       setCurrentSourcePage(null);
       setSourceDetailError(err instanceof Error ? err.message : "来源详情打开失败");
+      setSourceReaderOpen(true);
     }
   }
 
@@ -743,6 +749,8 @@ export default function Home() {
                   detail={sourceDetail}
                   error={sourceDetailError}
                   currentPage={currentSourcePage}
+                  open={sourceReaderOpen}
+                  onClose={() => setSourceReaderOpen(false)}
                   onPageChange={setCurrentSourcePage}
                 />
               )}
@@ -1202,22 +1210,46 @@ function SourceReader({
   detail,
   error,
   currentPage,
+  open,
+  onClose,
   onPageChange
 }: {
   detail: SourceDetail | null;
   error: string;
   currentPage: number | null;
+  open: boolean;
+  onClose: () => void;
   onPageChange: (page: number) => void;
 }) {
+  const shellClassName = `max-md:fixed max-md:inset-0 max-md:z-50 max-md:!mt-0 max-md:h-[100svh] max-md:overflow-y-auto max-md:rounded-none max-md:border-0 max-md:bg-[#fbfcf8] ${
+    open ? "max-md:block" : "max-md:hidden"
+  }`;
+  const mobileHeader = (
+    <div className="hidden border-b border-[#dce4d7] bg-[#fbfcf8] px-4 py-3 max-md:flex max-md:items-center max-md:justify-between max-md:gap-3 max-md:sticky max-md:top-0 max-md:z-10">
+      <button
+        type="button"
+        onClick={onClose}
+        className="focus-ring inline-flex items-center gap-2 rounded-md border border-[#c6d6c5] bg-[#f8fbf4] px-3 py-2 text-sm font-semibold text-[#315f43]"
+      >
+        <ChevronLeft size={16} strokeWidth={1.75} />
+        返回题目
+      </button>
+      <span className="truncate text-xs font-semibold text-[#637061]">来源详情</span>
+    </div>
+  );
+
   if (error) {
     const missingFile = error === "资料文件不存在";
     return (
-      <section className="rounded-md border border-[#c98972] bg-[#fff8f4] p-4" data-testid="source-reader-error">
-        <div className="mb-2 flex items-center gap-2 font-semibold text-[#9d4d2f]">
-          <AlertTriangle size={18} strokeWidth={1.75} />
-          {missingFile ? "资料文件不存在" : "来源已失效"}
+      <section className={`${shellClassName} rounded-md border border-[#c98972] bg-[#fff8f4]`} data-testid="source-reader-error">
+        {mobileHeader}
+        <div className="p-4">
+          <div className="mb-2 flex items-center gap-2 font-semibold text-[#9d4d2f]">
+            <AlertTriangle size={18} strokeWidth={1.75} />
+            {missingFile ? "资料文件不存在" : "来源已失效"}
+          </div>
+          <p className="text-sm leading-6 text-[#6e4a3b]">{missingFile ? "无法打开原 PDF 文件。" : "该来源已被删除或重新处理。"}</p>
         </div>
-        <p className="text-sm leading-6 text-[#6e4a3b]">{missingFile ? "无法打开原 PDF 文件。" : "该来源已被删除或重新处理。"}</p>
       </section>
     );
   }
@@ -1227,7 +1259,8 @@ function SourceReader({
   const atHitPage = currentPage === detail.page_no;
 
   return (
-    <section className="rounded-md border border-[#c8d8c7] bg-[#fbfcf8]" data-testid="source-reader">
+    <section className={`${shellClassName} rounded-md border border-[#c8d8c7] bg-[#fbfcf8]`} data-testid="source-reader">
+      {mobileHeader}
       <div className="border-b border-[#dce4d7] px-4 py-3">
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">

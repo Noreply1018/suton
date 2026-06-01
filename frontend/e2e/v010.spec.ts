@@ -744,6 +744,39 @@ test("v020-source-reader-page-nav：来源阅读区页码导航", async ({ page 
   }
 });
 
+test("v020-source-reader-mobile：移动端来源详情全屏返回后保留状态", async ({ page }) => {
+  const seed = seedSourceReader();
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    const firstSource = page.getByTestId("source-card").first();
+    await expect(firstSource).toContainText("source-reader.pdf 第 1 页");
+
+    await firstSource.getByRole("button", { name: /source-reader\.pdf/ }).click();
+    const reader = page.getByTestId("source-reader");
+    await expect(reader).toBeVisible();
+    await expect(reader.getByRole("button", { name: "返回题目" })).toBeVisible();
+    await expect(page.getByTestId("source-reader-source-text")).toContainText("source reader hit");
+
+    const box = await reader.boundingBox();
+    expect(box?.x).toBeLessThanOrEqual(1);
+    expect(box?.y).toBeLessThanOrEqual(1);
+    expect(box?.width).toBeGreaterThanOrEqual(389);
+    expect(box?.height).toBeGreaterThanOrEqual(843);
+
+    await reader.getByRole("button", { name: "返回题目" }).click();
+    await expect(reader).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await expect(firstSource).toBeVisible();
+    await expect(firstSource).toHaveAttribute("aria-current", "true");
+    await expect(firstSource).toContainText("source reader hit");
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
 test("visual-source-page-nav：生成来源页码导航截图", async ({ page }) => {
   const seed = seedSourceReader();
   const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
@@ -763,6 +796,39 @@ test("visual-source-page-nav：生成来源页码导航截图", async ({ page })
     expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(hasHorizontalOverflow).toBe(false);
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("visual-source-reader-mobile：生成移动端来源全屏详情截图", async ({ page }) => {
+  const seed = seedSourceReader();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const screenshotPath = resolve(evidenceDir, "390x844-source-reader-mobile.png");
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/?questionId=${seed.question_id}`);
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+
+    const reader = page.getByTestId("source-reader");
+    await expect(reader).toBeVisible();
+    await expect(reader.getByRole("button", { name: "返回题目" })).toBeVisible();
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+    await expect(page.getByTestId("source-reader-source-text")).toContainText("source reader hit");
+
+    const box = await reader.boundingBox();
+    expect(box?.x).toBeLessThanOrEqual(1);
+    expect(box?.y).toBeLessThanOrEqual(1);
+    expect(box?.width).toBeGreaterThanOrEqual(389);
+    expect(box?.height).toBeGreaterThanOrEqual(843);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());
