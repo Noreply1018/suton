@@ -541,11 +541,10 @@ export default function Home() {
   return (
     <main className="paper-shell min-h-screen text-ink" data-testid="app-shell" data-focus-mode={focusMode ? "true" : "false"}>
       <div
-        className={`grid min-h-screen ${
-          focusMode ? "grid-cols-[minmax(420px,0.8fr)_minmax(640px,1.2fr)]" : "grid-cols-[260px_minmax(0,1fr)_390px] max-2xl:grid-cols-[240px_minmax(0,1fr)_360px]"
-        } max-xl:grid-cols-1`}
+        className={`workspace-grid ${focusMode ? "workspace-grid-focus" : ""}`}
+        data-testid="workspace-grid"
       >
-        <aside className={`paper-sidebar flex min-h-screen flex-col px-5 py-6 max-xl:min-h-0 ${focusMode ? "hidden" : ""}`} data-testid="sidebar-nav">
+        <aside className={`paper-sidebar workspace-sidebar flex flex-col px-5 py-6 ${focusMode ? "hidden" : ""}`} data-testid="sidebar-nav">
           <div className="mb-7">
             <div className="mb-2 flex items-center gap-3">
               <div className="grid h-11 w-11 place-items-center rounded-md bg-[#d8eadb] text-[#204f3a] ring-1 ring-[#b5d1bd]">
@@ -608,7 +607,7 @@ export default function Home() {
           </div>
         </aside>
 
-        <section className="min-w-0 px-8 py-7 max-md:px-5" data-testid="trace-workspace">
+        <section className="workspace-main min-w-0 px-8 py-7 max-md:px-5" data-testid="trace-workspace">
           {focusMode && (
             <button
               type="button"
@@ -729,7 +728,7 @@ export default function Home() {
                 </p>
               )}
 
-              <div className="max-h-[420px] divide-y divide-[#dce4d7] overflow-y-auto border-y border-[#dce4d7] pr-1" data-testid="document-list">
+              <div className="max-h-[420px] divide-y divide-[#dce4d7] overflow-y-auto border-y border-[#dce4d7] pr-1 max-md:max-h-[280px]" data-testid="document-list">
                 {!activeProject ? (
                   <FirstEmptyProject />
                 ) : documents.length === 0 ? (
@@ -844,7 +843,7 @@ export default function Home() {
           </div>
         </section>
 
-        <aside className="paper-inspector min-h-screen px-5 py-7 max-xl:min-h-0" data-testid="evidence-preview">
+        <aside className="paper-inspector workspace-inspector px-5 py-7" data-testid="evidence-preview">
           <div className="mb-5">
             <div className="flex items-center gap-2 text-[#203a2b]">
               <FolderOpen size={18} strokeWidth={1.75} />
@@ -865,7 +864,7 @@ export default function Home() {
           ) : sourcedMatches.length === 0 ? (
             <EmptyResults>没有匹配资料。系统不会生成无来源答案。</EmptyResults>
           ) : (
-            <div className="max-h-[calc(100svh-190px)] space-y-4 overflow-y-auto pr-1 max-xl:max-h-[430px]" data-testid="source-results-list">
+            <div className="max-h-[calc(100svh-190px)] space-y-4 overflow-y-auto pr-1 max-xl:max-h-[430px] max-md:max-h-[360px]" data-testid="source-results-list">
               {sourcedMatches.map((match) => (
                 <article
                   key={match.id}

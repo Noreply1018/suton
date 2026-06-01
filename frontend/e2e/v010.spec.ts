@@ -230,6 +230,28 @@ async function longListMetrics(page: Page) {
   });
 }
 
+async function workspaceBreakpointMetrics(page: Page) {
+  return page.evaluate(() => {
+    const grid = document.querySelector('[data-testid="workspace-grid"]');
+    const inspector = document.querySelector('[data-testid="evidence-preview"]');
+    if (!grid || !inspector) throw new Error("workspace layout missing");
+    const columns = window
+      .getComputedStyle(grid)
+      .gridTemplateColumns.split(" ")
+      .map((value) => Number.parseFloat(value));
+    return {
+      columns,
+      inspectorDisplay: window.getComputedStyle(inspector).display,
+      inspectorPosition: window.getComputedStyle(inspector).position,
+      inspectorWidth: Math.round(inspector.getBoundingClientRect().width),
+      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      verticalOverflow: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      gridHeight: Math.round(grid.getBoundingClientRect().height),
+      viewportHeight: window.innerHeight
+    };
+  });
+}
+
 async function uploadMaterial(page: Page) {
   await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
   await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toBeVisible();
@@ -1020,6 +1042,52 @@ test("visual-focus-mode：生成桌面专注模式截图", async ({ page }) => {
     expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(hasHorizontalOverflow).toBe(false);
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("visual-workspace-breakpoints：生成桌面断点矩阵截图", async ({ page }) => {
+  const seed = seedSourceReader();
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const viewports = [
+    { width: 1440, height: 900, columns: [248, null, 420], minMiddle: 520, inspector: "block", overlay: false },
+    { width: 1280, height: 832, columns: [248, null, 420], minMiddle: 520, inspector: "block", overlay: false },
+    { width: 1200, height: 800, columns: [220, null, 360], minMiddle: 480, inspector: "block", overlay: false },
+    { width: 1024, height: 768, columns: [220, null], minMiddle: 700, inspector: "block", overlay: true }
+  ];
+  try {
+    mkdirSync(evidenceDir, { recursive: true });
+    for (const viewport of viewports) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto(`/?questionId=${seed.question_id}`);
+      await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+      const metrics = await workspaceBreakpointMetrics(page);
+      expect(metrics.gridHeight).toBe(viewport.height);
+      expect(metrics.horizontalOverflow).toBeLessThanOrEqual(1);
+      expect(metrics.verticalOverflow).toBeLessThanOrEqual(1);
+      expect(metrics.columns.length).toBe(viewport.columns.length);
+      expect(Math.round(metrics.columns[0])).toBe(viewport.columns[0]);
+      expect(metrics.columns[1]).toBeGreaterThanOrEqual(viewport.minMiddle);
+      if (viewport.columns[2] !== null && viewport.columns[2] !== undefined) {
+        expect(Math.round(metrics.columns[2])).toBe(viewport.columns[2]);
+      }
+      expect(metrics.inspectorDisplay).toBe(viewport.inspector);
+      if (viewport.overlay) {
+        expect(metrics.inspectorPosition).toBe("fixed");
+        expect(metrics.inspectorWidth).toBe(420);
+        await expect(page.getByTestId("source-card").first()).toBeVisible();
+        await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+        await expect(page.getByTestId("source-reader")).toBeVisible();
+        await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+      }
+      await page.screenshot({
+        path: resolve(evidenceDir, `${viewport.width}x${viewport.height}-workspace-breakpoints.png`),
+        fullPage: true
+      });
+      expect(statSync(resolve(evidenceDir, `${viewport.width}x${viewport.height}-workspace-breakpoints.png`)).size).toBeGreaterThan(1000);
+    }
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());
