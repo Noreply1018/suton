@@ -105,6 +105,12 @@ def update_project(project_id: int, payload: dict[str, str]) -> dict:
     return get_project(project_id)
 
 
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: int) -> dict:
+    delete_project_with_files(project_id)
+    return {"deleted": True, "project_id": project_id}
+
+
 @app.get("/projects/{project_id}/documents")
 def list_documents(project_id: int) -> list[dict]:
     with connect() as conn:
@@ -196,6 +202,50 @@ def delete_document_with_files(document_id: int) -> None:
             shutil.rmtree(trash_dir)
         except OSError:
             logger.exception("failed to clean document delete trash: %s", trash_dir)
+
+
+def delete_project_with_files(project_id: int) -> None:
+    upload_root = Path(settings.upload_dir).resolve()
+    trash_dir: Path | None = None
+    moved_files: list[tuple[Path, Path]] = []
+    try:
+        with connect() as conn:
+            with conn.transaction():
+                project = conn.execute("SELECT id FROM projects WHERE id = %s FOR UPDATE", (project_id,)).fetchone()
+                if not project:
+                    raise HTTPException(status_code=404, detail="项目不存在")
+                documents = conn.execute(
+                    "SELECT id, storage_path FROM documents WHERE project_id = %s ORDER BY id FOR UPDATE",
+                    (project_id,),
+                ).fetchall()
+
+                txid = conn.execute("SELECT txid_current() AS value").fetchone()["value"]
+                trash_dir = upload_root / ".delete-trash" / f"project-{project_id}-{txid}"
+                try:
+                    trash_dir.mkdir(parents=True, exist_ok=False)
+                    for document in documents:
+                        storage_path = safe_upload_path(document["storage_path"], upload_root)
+                        if not storage_path.is_file():
+                            raise OSError(f"project document file missing: {storage_path}")
+                        trash_path = trash_dir / f"{document['id']}-{storage_path.name}"
+                        storage_path.replace(trash_path)
+                        moved_files.append((trash_path, storage_path))
+                except OSError as exc:
+                    raise HTTPException(status_code=500, detail="项目文件删除失败") from exc
+
+                conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+    except HTTPException:
+        restore_deleted_files(moved_files, trash_dir)
+        raise
+    except Exception as exc:
+        restore_deleted_files(moved_files, trash_dir)
+        raise HTTPException(status_code=500, detail="项目文件删除失败") from exc
+
+    if trash_dir is not None:
+        try:
+            shutil.rmtree(trash_dir)
+        except OSError:
+            logger.exception("failed to clean project delete trash: %s", trash_dir)
 
 
 def safe_upload_path(raw_path: str, upload_root: Path) -> Path:

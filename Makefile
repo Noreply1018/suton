@@ -109,6 +109,7 @@ v020-db-test:
 	CHECK=v020-confidence-levels $(MAKE) verify-db
 	CHECK=v020-confidence-level-fields $(MAKE) verify-db
 	CHECK=v020-project-name-migration $(MAKE) verify-db
+	CHECK=v020-project-hard-delete $(MAKE) verify-db
 	CHECK=v020-document-health-fields $(MAKE) verify-db
 	CHECK=v020-document-hard-delete $(MAKE) verify-db
 	CHECK=v020-processing-failure-fields $(MAKE) verify-db

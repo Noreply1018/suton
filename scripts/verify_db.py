@@ -697,6 +697,150 @@ def check_v020_document_hard_delete() -> None:
         storage_path.unlink(missing_ok=True)
 
 
+def check_v020_project_hard_delete() -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    upload_root = Path(settings.upload_dir).resolve()
+    upload_root.mkdir(parents=True, exist_ok=True)
+    success_paths = [
+        upload_root / f"v020-project-delete-{suffix}-a.pdf",
+        upload_root / f"v020-project-delete-{suffix}-b.pdf",
+    ]
+    rollback_path = upload_root / f"v020-project-delete-rollback-{suffix}.pdf"
+    missing_path = upload_root / f"v020-project-delete-missing-{suffix}.pdf"
+    for path in [*success_paths, rollback_path]:
+        path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+    success_project_id: int | None = None
+    rollback_project_id: int | None = None
+    try:
+        with connect() as conn:
+            success_project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-project-delete-{suffix}",)).fetchone()
+            success_project_id = int(success_project["id"])
+            document_ids: list[int] = []
+            for index, path in enumerate(success_paths, start=1):
+                document = conn.execute(
+                    """
+                    INSERT INTO documents (
+                      project_id, filename, content_type, storage_path, page_count,
+                      extractable_page_count, chunk_count, text_quality, searchable,
+                      status, processing_stage
+                    )
+                    VALUES (%s, %s, 'application/pdf', %s, 1, 1, 1, 'good', true, 'completed', 'completed')
+                    RETURNING id
+                    """,
+                    (success_project_id, f"delete-project-{index}.pdf", str(path)),
+                ).fetchone()
+                document_ids.append(int(document["id"]))
+                page = conn.execute(
+                    """
+                    INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                    VALUES (%s, 1, %s, %s, %s)
+                    RETURNING id
+                    """,
+                    (document["id"], f"project delete source {index}", f"project delete source {index}", 23),
+                ).fetchone()
+                chunk = conn.execute(
+                    """
+                    INSERT INTO chunks (
+                      document_id, page_id, page_no, text, page_start_char, page_end_char,
+                      embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                    )
+                    VALUES (%s, %s, 1, %s, 0, 14, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-project-hard-delete')
+                    RETURNING id
+                    """,
+                    (document["id"], page["id"], "project delete", vector_literal([1.0] + [0.0] * 1023)),
+                ).fetchone()
+                if index == 1:
+                    question = conn.execute(
+                        "INSERT INTO questions (project_id, text, status) VALUES (%s, 'project delete query', 'completed') RETURNING id",
+                        (success_project_id,),
+                    ).fetchone()
+                    conn.execute(
+                        """
+                        INSERT INTO question_matches (
+                          question_id, chunk_id, document_id, page_no, score, rank,
+                          confidence_level, hit_reason, source_text, context_before, context_after
+                        )
+                        VALUES (%s, %s, %s, 1, 0.92, 1, 'strong', 'project delete fixture', 'project delete', '', '')
+                        """,
+                        (question["id"], chunk["id"], document["id"]),
+                    )
+
+            rollback_project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-project-delete-rollback-{suffix}",)).fetchone()
+            rollback_project_id = int(rollback_project["id"])
+            for filename, path in [("rollback-good.pdf", rollback_path), ("rollback-missing.pdf", missing_path)]:
+                conn.execute(
+                    """
+                    INSERT INTO documents (
+                      project_id, filename, content_type, storage_path, page_count,
+                      extractable_page_count, chunk_count, text_quality, searchable,
+                      status, processing_stage
+                    )
+                    VALUES (%s, %s, 'application/pdf', %s, 1, 1, 1, 'good', true, 'completed', 'completed')
+                    """,
+                    (rollback_project_id, filename, str(path)),
+                )
+            conn.commit()
+
+        client = TestClient(app)
+        deleted = client.delete(f"/projects/{success_project_id}")
+        require(deleted.status_code == 200, f"project delete expected HTTP 200, got {deleted.status_code}: {deleted.text}")
+        require(deleted.json() == {"deleted": True, "project_id": success_project_id}, f"project delete response mismatch: {deleted.json()}")
+        for path in success_paths:
+            require(not path.exists(), f"deleted project file still exists: {path}")
+        trash_matches = list((upload_root / ".delete-trash").glob(f"project-{success_project_id}-*"))
+        require(not trash_matches, f"deleted project trash directory was not cleaned: {trash_matches}")
+
+        with connect() as conn:
+            project_count = conn.execute("SELECT COUNT(*) AS value FROM projects WHERE id = %s", (success_project_id,)).fetchone()["value"]
+            document_count = conn.execute("SELECT COUNT(*) AS value FROM documents WHERE project_id = %s", (success_project_id,)).fetchone()["value"]
+            page_count = conn.execute(
+                "SELECT COUNT(*) AS value FROM document_pages WHERE document_id = ANY(%s)",
+                (document_ids,),
+            ).fetchone()["value"]
+            chunk_count = conn.execute(
+                "SELECT COUNT(*) AS value FROM chunks WHERE document_id = ANY(%s)",
+                (document_ids,),
+            ).fetchone()["value"]
+            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE project_id = %s", (success_project_id,)).fetchone()["value"]
+            match_count = conn.execute(
+                "SELECT COUNT(*) AS value FROM question_matches WHERE document_id = ANY(%s)",
+                (document_ids,),
+            ).fetchone()["value"]
+        require(project_count == 0, "deleted project row still exists")
+        require(document_count == 0, "deleted project documents still exist")
+        require(page_count == 0, "deleted project pages still exist")
+        require(chunk_count == 0, "deleted project chunks still exist")
+        require(question_count == 0, "deleted project questions still exist")
+        require(match_count == 0, "deleted project matches still exist")
+
+        rollback = client.delete(f"/projects/{rollback_project_id}")
+        require(rollback.status_code == 500, f"missing-file project delete expected HTTP 500, got {rollback.status_code}: {rollback.text}")
+        require(rollback.json()["detail"] == "项目文件删除失败", f"missing-file project delete detail mismatch: {rollback.json()}")
+        require(rollback_path.exists(), "project delete rollback did not restore moved file")
+        rollback_trash_matches = list((upload_root / ".delete-trash").glob(f"project-{rollback_project_id}-*"))
+        require(not rollback_trash_matches, f"rollback project trash directory was not cleaned: {rollback_trash_matches}")
+        with connect() as conn:
+            rollback_project_count = conn.execute("SELECT COUNT(*) AS value FROM projects WHERE id = %s", (rollback_project_id,)).fetchone()["value"]
+            rollback_document_count = conn.execute("SELECT COUNT(*) AS value FROM documents WHERE project_id = %s", (rollback_project_id,)).fetchone()["value"]
+        require(rollback_project_count == 1, "project delete failure did not roll back project row")
+        require(rollback_document_count == 2, "project delete failure did not roll back document rows")
+
+        missing_project = client.delete("/projects/999999999")
+        require(missing_project.status_code == 404, f"missing project delete expected HTTP 404, got {missing_project.status_code}: {missing_project.text}")
+        require(missing_project.json()["detail"] == "项目不存在", f"missing project delete detail mismatch: {missing_project.json()}")
+    finally:
+        if rollback_project_id is not None:
+            with connect() as conn:
+                conn.execute("DELETE FROM projects WHERE id = %s", (rollback_project_id,))
+                conn.commit()
+        for path in [*success_paths, rollback_path]:
+            path.unlink(missing_ok=True)
+
+
 def check_v020_source_detail_fields() -> None:
     from fastapi.testclient import TestClient
 
@@ -1243,6 +1387,7 @@ def main() -> None:
         "v020-document-health": check_v020_document_health_fields,
         "v020-document-health-fields": check_v020_document_health_fields,
         "v020-document-hard-delete": check_v020_document_hard_delete,
+        "v020-project-hard-delete": check_v020_project_hard_delete,
         "v020-processing-failure-fields": check_v020_processing_failure_fields,
         "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,
