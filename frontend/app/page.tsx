@@ -68,7 +68,7 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<number | null>(null);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
-  const [projectName, setProjectName] = useState("高等数学（上）期末复习");
+  const [projectName, setProjectName] = useState("");
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QuestionResult | null>(null);
   const [error, setError] = useState("");
@@ -238,6 +238,7 @@ export default function Home() {
               id="project-name"
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
+              placeholder="输入课程或复习项目名称"
               className="focus-ring w-full rounded-md border border-[#cbd8c9] bg-[#fbfcf8] px-3 py-2 text-sm"
             />
             <button
@@ -279,7 +280,7 @@ export default function Home() {
               <ShieldCheck size={17} />
               只展示有来源的结果
             </div>
-            <p className="text-xs leading-5 text-[#485d4b]">v0.1.0 不生成答案，只返回资料文件、页码和原文片段。</p>
+            <p className="text-xs leading-5 text-[#485d4b]">不生成无来源答案，只返回资料文件、页码和原文片段。</p>
           </div>
         </aside>
 
@@ -293,7 +294,7 @@ export default function Home() {
             </div>
             <div className="flex shrink-0 items-center gap-2 rounded-md border border-[#d0dccd] bg-[#f9fbf5] px-3 py-2 text-sm text-[#425542]">
               <CheckCircle2 size={16} />
-              本地 v0.1.0 闭环
+              本地来源闭环
             </div>
           </div>
 
@@ -324,7 +325,7 @@ export default function Home() {
                   }`}
                 >
                   <FileUp size={16} />
-                  上传 PDF
+                  {documents.length === 0 ? "添加第一份课程资料" : "上传 PDF"}
                   <input
                     ref={documentFileInputRef}
                     data-testid="document-file"
@@ -342,7 +343,9 @@ export default function Home() {
               </p>
 
               <div className="divide-y divide-[#dce4d7] border-y border-[#dce4d7]">
-                {documents.length === 0 ? (
+                {!activeProject ? (
+                  <FirstEmptyProject />
+                ) : documents.length === 0 ? (
                   <p className="py-8 text-sm text-[#516050]">项目内还没有资料。</p>
                 ) : (
                   documents.map((document) => <DocumentRowView key={document.id} document={document} />)
@@ -452,6 +455,19 @@ function DocumentRowView({ document }: { document: DocumentRow }) {
         </p>
       </div>
       <Status value={document.status} />
+    </div>
+  );
+}
+
+function FirstEmptyProject() {
+  return (
+    <div data-testid="v020-first-empty-project" className="py-8">
+      <div className="max-w-[520px]">
+        <p className="text-lg font-semibold text-[#203a2b]">添加第一份课程资料</p>
+        <p className="mt-2 text-sm leading-6 text-[#516050]">
+          先创建一个项目名称，再上传带文字层的 PDF。这里会显示页数、文字层质量和处理状态。
+        </p>
+      </div>
     </div>
   );
 }

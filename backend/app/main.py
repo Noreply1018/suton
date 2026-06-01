@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,11 @@ from app.processing import (
 
 app = FastAPI(title="Suton v0.1.0 API")
 logger = logging.getLogger(__name__)
+cors_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    *[origin.strip() for origin in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if origin.strip()],
+]
 
 TEXT_QUALITY_LABELS = {
     "good": "良好",
@@ -36,7 +42,7 @@ CONFIDENCE_LABELS = {
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

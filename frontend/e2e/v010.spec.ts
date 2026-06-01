@@ -29,6 +29,22 @@ test("project-validation：空项目名被拦截", async ({ page }) => {
   await expect(page.getByText("项目名称不能为空")).toBeVisible();
 });
 
+test("v020-first-empty-project：首次空工作台不使用默认项目名", async ({ page }) => {
+  const projectsResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/projects") && response.request().method() === "GET"
+  );
+  await page.goto("/");
+  expect((await projectsResponse).status()).toBe(200);
+  await expect(page.getByTestId("sidebar-nav")).toBeVisible();
+  await expect(page.getByTestId("trace-workspace")).toBeVisible();
+  await expect(page.getByTestId("evidence-preview")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "尚未创建项目" })).toBeVisible();
+  await expect(page.getByTestId("v020-first-empty-project")).toContainText("添加第一份课程资料");
+  await expect(page.getByLabel("新建项目")).toHaveValue("");
+  await expect(page.getByPlaceholder("输入课程或复习项目名称")).toBeVisible();
+  await expect(page.getByText("高等数学（上）期末复习")).toHaveCount(0);
+});
+
 test("question-input：无资料时提交题目被拦截", async ({ page }) => {
   await page.goto("/");
   await createProject(page, "无资料项目");
