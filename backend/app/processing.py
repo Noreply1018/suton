@@ -149,9 +149,28 @@ def process_document(document_id: int) -> None:
                     normalized_pages[page_no] = normalized_text
                     for chunk, start, end in chunks:
                         all_chunks.append((page_no, chunk, start, end))
-                conn.execute("UPDATE documents SET processing_stage = 'embedding', updated_at = now() WHERE id = %s", (document_id,))
-                embeddings = embed_texts([chunk for _, chunk, _, _ in all_chunks])
-                conn.execute("UPDATE documents SET processing_stage = 'indexing', updated_at = now() WHERE id = %s", (document_id,))
+                conn.execute(
+                    """
+                    UPDATE documents
+                    SET processing_stage = 'embedding', page_count = %s,
+                        extractable_page_count = %s, chunk_count = %s,
+                        text_quality = %s, searchable = false, updated_at = now()
+                    WHERE id = %s
+                    """,
+                    (
+                        total_page_count,
+                        len(normalized_pages),
+                        len(all_chunks),
+                        text_quality_for_counts(len(normalized_pages), total_page_count),
+                        document_id,
+                    ),
+                )
+        embeddings = embed_texts([chunk for _, chunk, _, _ in all_chunks])
+        with connect() as conn:
+            conn.execute("UPDATE documents SET processing_stage = 'indexing', updated_at = now() WHERE id = %s", (document_id,))
+            conn.commit()
+        with connect() as conn:
+            with conn.transaction():
                 for (page_no, chunk, start, end), embedding in zip(all_chunks, embeddings, strict=True):
                     conn.execute(
                         """

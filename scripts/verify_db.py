@@ -585,6 +585,60 @@ def check_v020_processing_failure_fields() -> None:
                 conn.commit()
 
 
+def check_v020_processing_embedding_failure_stage() -> None:
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    fixture_path = Path("tests/fixtures/text-layer-material.pdf")
+    require(fixture_path.exists(), f"text-layer PDF fixture not found: {fixture_path}")
+    project_id: int | None = None
+    original_key = settings.dashscope_api_key
+    try:
+        with connect() as conn:
+            project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-processing-embedding-failure-{suffix}",)).fetchone()
+            project_id = int(project["id"])
+            document = conn.execute(
+                """
+                INSERT INTO documents (project_id, filename, content_type, storage_path, status, processing_stage)
+                VALUES (%s, 'text-layer-material.pdf', 'application/pdf', %s, 'uploaded', 'uploaded')
+                RETURNING id
+                """,
+                (project_id, str(fixture_path)),
+            ).fetchone()
+            document_id = int(document["id"])
+            conn.commit()
+
+        object.__setattr__(settings, "dashscope_api_key", None)
+        failed = False
+        try:
+            process_document(document_id)
+        except Exception:  # noqa: BLE001
+            failed = True
+        require(failed, "text-layer PDF processing did not fail without embedding credentials")
+
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM documents WHERE id = %s", (document_id,)).fetchone()
+            page_count = conn.execute("SELECT COUNT(*) AS value FROM document_pages WHERE document_id = %s", (document_id,)).fetchone()["value"]
+            chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (document_id,)).fetchone()["value"]
+        require(row is not None, "embedding-failed document row missing")
+        require(row["status"] == "failed", f"embedding-failed document status mismatch: {row['status']}")
+        require(row["processing_stage"] == "failed", f"embedding-failed processing_stage mismatch: {row['processing_stage']}")
+        require(row["failed_stage"] == "embedding", f"embedding-failed failed_stage mismatch: {row['failed_stage']}")
+        require(row["failure_code"] == "embedding_failed", f"embedding-failed failure_code mismatch: {row['failure_code']}")
+        require(row["failure_reason"] == "生成 embedding 失败", f"embedding-failed failure_reason mismatch: {row['failure_reason']}")
+        require(row["page_count"] == 57, f"embedding-failed page_count mismatch: {row['page_count']}")
+        require(row["extractable_page_count"] > 0, "embedding-failed extractable_page_count was not persisted")
+        require(row["chunk_count"] > 0, "embedding-failed chunk_count candidate count was not persisted")
+        require(row["searchable"] is False, "embedding-failed document must not be searchable")
+        require(row["processed_at"] is not None, "embedding-failed processed_at must be set")
+        require(page_count > 0, "embedding-failed document_pages were not persisted before embedding")
+        require(chunk_count == 0, "embedding-failed document must not persist chunks without embeddings")
+    finally:
+        object.__setattr__(settings, "dashscope_api_key", original_key)
+        if project_id is not None:
+            with connect() as conn:
+                conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                conn.commit()
+
+
 def check_v020_document_hard_delete() -> None:
     from fastapi.testclient import TestClient
 
@@ -1693,6 +1747,7 @@ def main() -> None:
         "v020-delete-trash-cleanup": check_v020_delete_trash_cleanup,
         "v020-document-reprocess-no-duplicates": check_v020_document_reprocess_no_duplicates,
         "v020-processing-failure-fields": check_v020_processing_failure_fields,
+        "v020-processing-embedding-failure-stage": check_v020_processing_embedding_failure_stage,
         "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,
         "project-summary": check_project_summary,
