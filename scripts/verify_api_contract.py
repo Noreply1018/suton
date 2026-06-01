@@ -377,6 +377,88 @@ def check_project_name_limits() -> None:
         delete_project_records(created_ids)
 
 
+def check_document_detail_fields() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"资料详情字段-{suffix}")
+    try:
+        completed_id = create_document_record(
+            project_id,
+            filename="completed-detail.pdf",
+            status="completed",
+            processing_stage="completed",
+            page_count=10,
+            extractable_page_count=10,
+            chunk_count=2,
+            text_quality="good",
+            searchable=True,
+        )
+        failed_id = create_document_record(
+            project_id,
+            filename="failed-detail.pdf",
+            status="failed",
+            processing_stage="failed",
+            failed_stage="embedding",
+            failure_code="embedding_failed",
+            failure_reason="生成 embedding 失败",
+            page_count=10,
+            extractable_page_count=10,
+            chunk_count=0,
+            text_quality="good",
+            searchable=False,
+        )
+        unsupported_id = create_document_record(
+            project_id,
+            filename="unsupported-detail.pdf",
+            status="unsupported",
+            processing_stage="failed",
+            failed_stage="extracting_text",
+            failure_code="no_text_layer",
+            failure_reason="PDF 无可提取文字层，v0.2.0 不进入 OCR",
+            page_count=4,
+            extractable_page_count=0,
+            chunk_count=0,
+            text_quality="unsearchable",
+            searchable=False,
+        )
+
+        completed = client.get(f"/documents/{completed_id}")
+        require_status(completed, 200)
+        assert_document_shape(completed.json())
+        require(completed.json()["filename"] == "completed-detail.pdf", "completed document filename mismatch")
+        require(completed.json()["failure_code"] is None, "completed document failure_code must be null")
+        require(completed.json()["failure_reason"] is None, "completed document failure_reason must be null")
+        require(completed.json()["text_quality_label"] == "良好", "completed document text_quality_label mismatch")
+        require(completed.json()["searchable"] is True, "completed document searchable mismatch")
+
+        failed = client.get(f"/documents/{failed_id}")
+        require_status(failed, 200)
+        assert_document_shape(failed.json())
+        require(failed.json()["status"] == "failed", "failed document status mismatch")
+        require(failed.json()["failed_stage"] == "embedding", "failed document failed_stage mismatch")
+        require(failed.json()["failure_code"] == "embedding_failed", "failed document failure_code mismatch")
+        require(failed.json()["failure_reason"] == "生成 embedding 失败", "failed document failure_reason mismatch")
+        require(failed.json()["searchable"] is False, "failed document searchable mismatch")
+
+        unsupported = client.get(f"/documents/{unsupported_id}")
+        require_status(unsupported, 200)
+        assert_document_shape(unsupported.json())
+        require(unsupported.json()["status"] == "unsupported", "unsupported document status mismatch")
+        require(unsupported.json()["failed_stage"] == "extracting_text", "unsupported document failed_stage mismatch")
+        require(unsupported.json()["failure_code"] == "no_text_layer", "unsupported document failure_code mismatch")
+        require(unsupported.json()["failure_reason"] == "PDF 无可提取文字层，v0.2.0 不进入 OCR", "unsupported document failure_reason mismatch")
+        require(unsupported.json()["text_quality_label"] == "不可检索", "unsupported document text_quality_label mismatch")
+        require(unsupported.json()["searchable"] is False, "unsupported document searchable mismatch")
+
+        documents = client.get(f"/projects/{project_id}/documents")
+        require_status(documents, 200)
+        for document in documents.json():
+            assert_document_shape(document)
+            require("storage_path" not in document, "document list leaked storage_path")
+    finally:
+        delete_project_records([project_id])
+
+
 def check_stale_source() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -467,6 +549,7 @@ def main() -> None:
     check = os.getenv("CHECK", "v020-project-document-api")
     checks = {
         "v020-project-document-api": check_project_document_api,
+        "v020-document-detail-fields": check_document_detail_fields,
         "v020-project-name-limits": check_project_name_limits,
         "v020-stale-source": check_stale_source,
     }
