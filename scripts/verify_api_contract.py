@@ -8,7 +8,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db import connect
+from app.db import connect, vector_literal
 from app.main import app
 
 
@@ -377,11 +377,98 @@ def check_project_name_limits() -> None:
         delete_project_records(created_ids)
 
 
+def check_stale_source() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"失效来源-{suffix}")
+    page_text = "before stale source after"
+    source_text = "stale source"
+    source_start = page_text.index(source_text)
+    query = [1.0, 0.0] + [0.0] * 1022
+    try:
+        with connect() as conn:
+            document = conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
+                )
+                VALUES (%s, 'stale-source.pdf', 'application/pdf', 'uploads/stale-source.pdf', 1, 1, 1, 'good', true, 'completed', 'completed')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, %s, %s, %s)
+                RETURNING id
+                """,
+                (document["id"], page_text, page_text, len(page_text)),
+            ).fetchone()
+            chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-stale-source')
+                RETURNING id
+                """,
+                (
+                    document["id"],
+                    page["id"],
+                    source_text,
+                    source_start,
+                    source_start + len(source_text),
+                    vector_literal(query),
+                ),
+            ).fetchone()
+            question = conn.execute(
+                "INSERT INTO questions (project_id, text, status) VALUES (%s, 'stale source query', 'completed') RETURNING id",
+                (project_id,),
+            ).fetchone()
+            match = conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, 0.88, 1, 'strong', 'fixed stale source fixture', %s, 'before ', ' after')
+                RETURNING id
+                """,
+                (question["id"], chunk["id"], document["id"], source_text),
+            ).fetchone()
+            conn.commit()
+
+        available = client.get(f"/questions/{question['id']}/matches/{match['id']}")
+        require_status(available, 200)
+        require(available.json()["source_text"] == source_text, "available source detail source_text mismatch")
+
+        with connect() as conn:
+            conn.execute(
+                """
+                UPDATE documents
+                SET status = 'processing', processing_stage = 'embedding', searchable = false, updated_at = now()
+                WHERE id = %s
+                """,
+                (document["id"],),
+            )
+            conn.commit()
+
+        stale = client.get(f"/questions/{question['id']}/matches/{match['id']}")
+        require_status(stale, 404, "来源已失效")
+    finally:
+        delete_project_records([project_id])
+
+
 def main() -> None:
     check = os.getenv("CHECK", "v020-project-document-api")
     checks = {
         "v020-project-document-api": check_project_document_api,
         "v020-project-name-limits": check_project_name_limits,
+        "v020-stale-source": check_stale_source,
     }
     if check not in checks:
         raise SystemExit(f"unsupported CHECK={check}")
