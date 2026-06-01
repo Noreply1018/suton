@@ -6,7 +6,7 @@ import runpy
 import time
 
 from app.db import connect, vector_literal
-from app.processing import confidence_level_for_score, document_searchable_for_fields, text_quality_for_counts
+from app.processing import confidence_level_for_score, document_searchable_for_fields, process_document, text_quality_for_counts
 
 migrated_project_name = runpy.run_path("scripts/migrate.py")["migrated_project_name"]
 
@@ -515,6 +515,65 @@ def check_v020_document_health_fields() -> None:
         require(row["searchable"] is expected_searchable, f"document searchable mismatch for {row['filename']}")
         require(row["extractable_page_count"] <= row["page_count"], f"extractable pages exceed page_count for {row['filename']}")
     require(invalid_documents == 0, "document health fields are inconsistent")
+
+
+def check_v020_processing_failure_fields() -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    fixture_path = Path("tests/fixtures/broken.pdf")
+    require(fixture_path.exists(), f"broken PDF fixture not found: {fixture_path}")
+    project_id: int | None = None
+    document_id: int | None = None
+    try:
+        with connect() as conn:
+            project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-processing-failure-{suffix}",)).fetchone()
+            project_id = int(project["id"])
+            document = conn.execute(
+                """
+                INSERT INTO documents (project_id, filename, content_type, storage_path, status, processing_stage)
+                VALUES (%s, 'broken.pdf', 'application/pdf', %s, 'uploaded', 'uploaded')
+                RETURNING id
+                """,
+                (project_id, str(fixture_path)),
+            ).fetchone()
+            document_id = int(document["id"])
+            conn.commit()
+
+        failed = False
+        try:
+            process_document(document_id)
+        except Exception:  # noqa: BLE001
+            failed = True
+        require(failed, "broken PDF processing did not fail")
+
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM documents WHERE id = %s", (document_id,)).fetchone()
+        require(row is not None, "failed document row missing")
+        require(row["status"] == "failed", f"failed document status mismatch: {row['status']}")
+        require(row["processing_stage"] == "failed", f"failed document processing_stage mismatch: {row['processing_stage']}")
+        require(row["failed_stage"] == "extracting_text", f"failed document failed_stage mismatch: {row['failed_stage']}")
+        require(row["failure_code"] == "invalid_pdf", f"failed document failure_code mismatch: {row['failure_code']}")
+        require(row["failure_reason"] == "PDF 文件损坏，无法读取", f"failed document failure_reason mismatch: {row['failure_reason']}")
+        require(row["searchable"] is False, "failed document must not be searchable")
+        require(row["processed_at"] is not None, "failed document processed_at must be set")
+
+        client = TestClient(app)
+        response = client.get(f"/documents/{document_id}")
+        require(response.status_code == 200, f"failed document detail expected HTTP 200, got {response.status_code}: {response.text}")
+        detail = response.json()
+        require(detail["failed_stage"] == "extracting_text", "failed document detail failed_stage mismatch")
+        require(detail["failure_code"] == "invalid_pdf", "failed document detail failure_code mismatch")
+        require(detail["failure_reason"] == "PDF 文件损坏，无法读取", "failed document detail failure_reason mismatch")
+        require(detail["processing_stage"] == "failed", "failed document detail processing_stage mismatch")
+        require(detail["searchable"] is False, "failed document detail searchable mismatch")
+    finally:
+        if project_id is not None:
+            with connect() as conn:
+                conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                conn.commit()
 
 
 def check_v020_source_detail_fields() -> None:
@@ -1062,6 +1121,7 @@ def main() -> None:
         "v020-project-name-migration": check_v020_project_name_migration,
         "v020-document-health": check_v020_document_health_fields,
         "v020-document-health-fields": check_v020_document_health_fields,
+        "v020-processing-failure-fields": check_v020_processing_failure_fields,
         "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,
         "project-summary": check_project_summary,

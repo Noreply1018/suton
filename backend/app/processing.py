@@ -14,6 +14,18 @@ from app.embedding import embed_texts
 MAX_CHUNK_CHARS = 2000
 MIN_MATCH_SCORE = 0.40
 CONTEXT_CHARS = 300
+DOCUMENT_FAILURE_REASONS = {
+    "invalid_pdf": "PDF 文件损坏，无法读取",
+    "unsupported_file_type": "文件类型不受支持",
+    "no_text_layer": "PDF 无可提取文字层，v0.2.0 不进入 OCR",
+    "extract_text_failed": "提取文字失败",
+    "chunking_failed": "切块失败",
+    "embedding_failed": "生成 embedding 失败",
+    "indexing_failed": "建立索引失败",
+    "storage_missing": "资料文件不存在",
+    "delete_file_failed": "资料文件删除失败",
+    "unknown_processing_error": "资料处理失败",
+}
 
 
 def confidence_level_for_score(score: float) -> str:
@@ -181,7 +193,8 @@ def process_document(document_id: int) -> None:
                     ),
                 )
     except Exception as exc:  # noqa: BLE001
-        mark_document_failed(document_id, str(exc), status="failed")
+        failure_code = "invalid_pdf" if isinstance(exc, fitz.FileDataError) else None
+        mark_document_failed(document_id, str(exc), status="failed", failure_code=failure_code)
         raise
 
 
@@ -197,10 +210,20 @@ def extract_pages_and_chunks(path: Path) -> tuple[int, list[tuple[int, str, list
     return page_count, result
 
 
-def mark_document_failed(document_id: int, reason: str, status: str = "failed") -> None:
-    failure_code = "no_text_layer" if status == "unsupported" else "unknown_processing_error"
-    fixed_reason = "PDF 无可提取文字层，v0.2.0 不进入 OCR" if failure_code == "no_text_layer" else "资料处理失败"
+def mark_document_failed(document_id: int, reason: str, status: str = "failed", failure_code: str | None = None) -> None:
     with connect() as conn:
+        document = conn.execute("SELECT processing_stage FROM documents WHERE id = %s", (document_id,)).fetchone()
+        failed_stage = document["processing_stage"] if document else "uploaded"
+        if status == "unsupported":
+            failure_code = "no_text_layer"
+        elif failure_code is None:
+            failure_code = {
+                "extracting_text": "extract_text_failed",
+                "chunking": "chunking_failed",
+                "embedding": "embedding_failed",
+                "indexing": "indexing_failed",
+            }.get(failed_stage, "unknown_processing_error")
+        fixed_reason = DOCUMENT_FAILURE_REASONS[failure_code]
         conn.execute(
             """
             UPDATE documents
