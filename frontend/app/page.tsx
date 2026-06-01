@@ -37,6 +37,7 @@ type DocumentRow = {
   page_count: number | null;
   extractable_page_count: number;
   chunk_count: number;
+  text_quality: string;
   text_quality_label: string;
   searchable: boolean;
   status: string;
@@ -90,6 +91,8 @@ export default function Home() {
   const [documentToDelete, setDocumentToDelete] = useState<DocumentRow | null>(null);
   const [documentDialogError, setDocumentDialogError] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<DocumentRow | null>(null);
+  const [scopeMode, setScopeMode] = useState<"all" | "selected">("all");
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<number[]>([]);
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QuestionResult | null>(null);
   const [error, setError] = useState("");
@@ -104,6 +107,11 @@ export default function Home() {
   );
   const sourcedMatches = useMemo(() => result?.matches.filter(hasSource) ?? [], [result]);
   const completedDocuments = documents.filter((document) => document.status === "completed").length;
+  const selectedScopeIds = useMemo(
+    () => documents.filter((document) => selectedDocumentIds.includes(document.id)).map((document) => document.id),
+    [documents, selectedDocumentIds]
+  );
+  const questionSubmitDisabled = busy || !activeProject || (scopeMode === "selected" && selectedScopeIds.length === 0);
 
   useEffect(() => {
     activeProjectIdRef.current = activeProjectId;
@@ -114,6 +122,17 @@ export default function Home() {
     const currentDocument = documents.find((document) => document.id === selectedDocument.id);
     setSelectedDocument(currentDocument ?? null);
   }, [documents, selectedDocument]);
+
+  useEffect(() => {
+    setSelectedDocumentIds((current) =>
+      documents.filter((document) => document.searchable && current.includes(document.id)).map((document) => document.id)
+    );
+  }, [documents]);
+
+  useEffect(() => {
+    setScopeMode("all");
+    setSelectedDocumentIds([]);
+  }, [activeProjectId]);
 
   async function refresh(preferredProjectId?: number) {
     const requestSeq = ++refreshSeqRef.current;
@@ -333,6 +352,8 @@ export default function Home() {
   async function submitQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!activeProject) return;
+    const documentIds = scopeMode === "all" ? null : selectedScopeIds;
+    if (scopeMode === "selected" && selectedScopeIds.length === 0) return;
     setError("");
     setResult(null);
     setBusy(true);
@@ -340,7 +361,7 @@ export default function Home() {
     try {
       const nextResult = await request<QuestionResult>(`/projects/${projectId}/questions`, {
         method: "POST",
-        body: JSON.stringify({ text: question })
+        body: JSON.stringify({ text: question, document_ids: documentIds })
       });
       if (activeProjectIdRef.current === projectId) {
         setResult(nextResult);
@@ -351,6 +372,13 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function toggleScopeDocument(document: DocumentRow) {
+    if (!document.searchable) return;
+    setSelectedDocumentIds((current) =>
+      current.includes(document.id) ? current.filter((documentId) => documentId !== document.id) : [...current, document.id]
+    );
   }
 
   return (
@@ -555,10 +583,17 @@ export default function Home() {
                   className="focus-ring w-full resize-none rounded-md border border-[#c9d7c8] bg-[#fbfcf8] px-4 py-3 text-sm leading-6 text-[#26382d]"
                   placeholder="粘贴一道题目文本"
                 />
+                <DocumentScopeSelector
+                  documents={documents}
+                  mode={scopeMode}
+                  selectedIds={selectedDocumentIds}
+                  onModeChange={setScopeMode}
+                  onToggleDocument={toggleScopeDocument}
+                />
                 <div className="mt-4 flex items-center justify-between gap-4 max-sm:flex-col max-sm:items-start">
                   <p className="text-sm text-[#4f5d50]">提交后仅返回带文件、页码和片段的资料依据。</p>
                   <button
-                    disabled={busy || !activeProject}
+                    disabled={questionSubmitDisabled}
                     className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#315f43] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#264b35] disabled:opacity-55"
                   >
                     {busy ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
@@ -842,6 +877,84 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function DocumentScopeSelector({
+  documents,
+  mode,
+  selectedIds,
+  onModeChange,
+  onToggleDocument
+}: {
+  documents: DocumentRow[];
+  mode: "all" | "selected";
+  selectedIds: number[];
+  onModeChange: (mode: "all" | "selected") => void;
+  onToggleDocument: (document: DocumentRow) => void;
+}) {
+  return (
+    <section className="mt-4" data-testid="document-scope-selector">
+      <div className="inline-grid rounded-md border border-[#c8d8c7] bg-[#f8fbf4] p-1 text-sm font-semibold text-[#315f43] sm:grid-cols-2">
+        <button
+          type="button"
+          aria-pressed={mode === "all"}
+          onClick={() => onModeChange("all")}
+          className={`focus-ring rounded px-3 py-2 transition ${
+            mode === "all" ? "bg-[#315f43] text-white shadow-sm" : "hover:bg-[#edf6e9]"
+          }`}
+        >
+          全部可检索资料
+        </button>
+        <button
+          type="button"
+          aria-pressed={mode === "selected"}
+          onClick={() => onModeChange("selected")}
+          className={`focus-ring rounded px-3 py-2 transition ${
+            mode === "selected" ? "bg-[#315f43] text-white shadow-sm" : "hover:bg-[#edf6e9]"
+          }`}
+        >
+          指定资料
+        </button>
+      </div>
+
+      {mode === "selected" && (
+        <div className="mt-3 divide-y divide-[#dce4d7] border-y border-[#dce4d7]" data-testid="document-scope-list">
+          {documents.length === 0 ? (
+            <p className="py-4 text-sm text-[#516050]">项目内还没有资料。</p>
+          ) : (
+            documents.map((document) => {
+              const disabledReason = documentScopeDisabledReason(document);
+              const checked = selectedIds.includes(document.id);
+              return (
+                <label
+                  key={document.id}
+                  data-testid={`document-scope-option-${document.id}`}
+                  className={`grid grid-cols-[auto_minmax(0,1fr)] gap-3 py-3 text-sm ${
+                    disabledReason ? "cursor-not-allowed text-[#768074]" : "cursor-pointer text-[#26382d]"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={Boolean(disabledReason)}
+                    onChange={() => onToggleDocument(document)}
+                    className="mt-1 h-4 w-4 accent-[#315f43]"
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate font-semibold">{document.filename}</span>
+                    <span className="mt-1 block text-xs text-[#516050]">
+                      {document.text_quality_label} · {document.chunk_count} 个片段 · {document.searchable ? "可检索" : "不可检索"}
+                      {disabledReason ? ` · ${disabledReason}` : ""}
+                    </span>
+                  </span>
+                </label>
+              );
+            })
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function DocumentRowView({
   document,
   selected,
@@ -981,6 +1094,13 @@ function displayNumber(value: number | null) {
 
 function displayPages(value: number | null) {
   return value === null ? "等待页数" : `${value} 页`;
+}
+
+function documentScopeDisabledReason(document: DocumentRow) {
+  if (document.status !== "completed") return "资料尚未完成处理";
+  if (document.text_quality === "unsearchable") return "资料不可检索";
+  if (document.chunk_count === 0) return "暂无可检索片段";
+  return null;
 }
 
 function formatDateTime(value: string | null) {

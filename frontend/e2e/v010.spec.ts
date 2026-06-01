@@ -308,6 +308,39 @@ test("v020-document-detail-fields：资料详情展示完成失败和 unsupporte
   await expectDetailItem(page, "failure-reason", "失败原因", "PDF 无可提取文字层，v0.2.0 不进入 OCR");
 });
 
+test("v020-document-scope-disabled：不可检索资料范围选择器禁用态", async ({ page }) => {
+  const seed = seedDocumentDetails();
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+
+  const scope = page.getByTestId("document-scope-selector");
+  await expect(scope.getByRole("button", { name: "全部可检索资料" })).toHaveAttribute("aria-pressed", "true");
+  await scope.getByRole("button", { name: "指定资料" }).click();
+  await expect(scope.getByRole("button", { name: "指定资料" })).toHaveAttribute("aria-pressed", "true");
+
+  const submitButton = page.getByRole("button", { name: "查找资料依据" });
+  await expect(submitButton).toBeDisabled();
+
+  const completed = page.getByTestId(`document-scope-option-${seed.completed_id}`);
+  await expect(completed).toContainText("detail-completed.pdf");
+  await expect(completed).toContainText("良好 · 1 个片段 · 可检索");
+  await expect(completed.locator("input")).toBeEnabled();
+
+  const failed = page.getByTestId(`document-scope-option-${seed.failed_id}`);
+  await expect(failed).toContainText("detail-failed.pdf");
+  await expect(failed).toContainText("不可检索 · 0 个片段 · 不可检索 · 资料尚未完成处理");
+  await expect(failed.locator("input")).toBeDisabled();
+
+  const unsupported = page.getByTestId(`document-scope-option-${seed.unsupported_id}`);
+  await expect(unsupported).toContainText("detail-scanned.pdf");
+  await expect(unsupported).toContainText("不可检索 · 0 个片段 · 不可检索 · 资料尚未完成处理");
+  await expect(unsupported.locator("input")).toBeDisabled();
+
+  await completed.click();
+  await expect(completed.locator("input")).toBeChecked();
+  await expect(submitButton).toBeEnabled();
+});
+
 test("question-input：无资料时提交题目被拦截", async ({ page }) => {
   await page.goto("/");
   await createProject(page, "无资料项目");
