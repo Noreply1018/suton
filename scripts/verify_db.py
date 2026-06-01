@@ -919,76 +919,83 @@ def check_v020_document_reprocess_no_duplicates() -> None:
     upload_root = Path(settings.upload_dir)
     upload_root.mkdir(parents=True, exist_ok=True)
     storage_path = upload_root / f"v020-document-reprocess-{suffix}.pdf"
-    storage_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
-    with connect() as conn:
-        project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-document-reprocess-{suffix}",)).fetchone()
-        document = conn.execute(
-            """
-            INSERT INTO documents (
-              project_id, filename, content_type, storage_path, page_count,
-              extractable_page_count, chunk_count, text_quality, searchable,
-              status, processing_stage, processed_at
-            )
-            VALUES (%s, 'reprocess.pdf', 'application/pdf', %s, 1, 1, 2, 'good', true, 'completed', 'completed', now())
-            RETURNING id
-            """,
-            (project["id"], str(storage_path)),
-        ).fetchone()
-        page = conn.execute(
-            """
-            INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
-            VALUES (%s, 1, 'old alpha old beta', 'old alpha old beta', 18)
-            RETURNING id
-            """,
-            (document["id"],),
-        ).fetchone()
-        chunks = []
-        for rank, text in enumerate(["old alpha", "old beta"], start=1):
-            start = "old alpha old beta".index(text)
-            chunk = conn.execute(
-                """
-                INSERT INTO chunks (
-                  document_id, page_id, page_no, text, page_start_char, page_end_char,
-                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
-                )
-                VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-document-reprocess-no-duplicates')
-                RETURNING id
-                """,
-                (document["id"], page["id"], text, start, start + len(text), vector_literal([1.0, 0.0] + [0.0] * 1022)),
-            ).fetchone()
-            chunks.append((rank, chunk))
-        question = conn.execute(
-            "INSERT INTO questions (project_id, text, status) VALUES (%s, 'reprocess question', 'completed') RETURNING id",
-            (project["id"],),
-        ).fetchone()
-        old_match_ids = []
-        for rank, chunk in chunks:
-            match = conn.execute(
-                """
-                INSERT INTO question_matches (
-                  question_id, chunk_id, document_id, page_no, score, rank,
-                  confidence_level, hit_reason, source_text, context_before, context_after
-                )
-                VALUES (%s, %s, %s, 1, 0.88, %s, 'strong', 'old reprocess fixture', 'old', '', '')
-                RETURNING id
-                """,
-                (question["id"], chunk["id"], document["id"], rank),
-            ).fetchone()
-            old_match_ids.append(match["id"])
-        conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project["id"],))
-        conn.commit()
-
+    project_id: int | None = None
+    document_id: int | None = None
+    question_id: int | None = None
+    old_match_ids: list[int] = []
     try:
-        reset_document_for_reprocess(document["id"])
+        storage_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+        with connect() as conn:
+            project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-document-reprocess-{suffix}",)).fetchone()
+            project_id = project["id"]
+            document = conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage, processed_at
+                )
+                VALUES (%s, 'reprocess.pdf', 'application/pdf', %s, 1, 1, 2, 'good', true, 'completed', 'completed', now())
+                RETURNING id
+                """,
+                (project_id, str(storage_path)),
+            ).fetchone()
+            document_id = document["id"]
+            page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, 'old alpha old beta', 'old alpha old beta', 18)
+                RETURNING id
+                """,
+                (document_id,),
+            ).fetchone()
+            chunks = []
+            for rank, text in enumerate(["old alpha", "old beta"], start=1):
+                start = "old alpha old beta".index(text)
+                chunk = conn.execute(
+                    """
+                    INSERT INTO chunks (
+                      document_id, page_id, page_no, text, page_start_char, page_end_char,
+                      embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                    )
+                    VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-document-reprocess-no-duplicates')
+                    RETURNING id
+                    """,
+                    (document_id, page["id"], text, start, start + len(text), vector_literal([1.0, 0.0] + [0.0] * 1022)),
+                ).fetchone()
+                chunks.append((rank, chunk))
+            question = conn.execute(
+                "INSERT INTO questions (project_id, text, status) VALUES (%s, 'reprocess question', 'completed') RETURNING id",
+                (project_id,),
+            ).fetchone()
+            question_id = question["id"]
+            for rank, chunk in chunks:
+                match = conn.execute(
+                    """
+                    INSERT INTO question_matches (
+                      question_id, chunk_id, document_id, page_no, score, rank,
+                      confidence_level, hit_reason, source_text, context_before, context_after
+                    )
+                    VALUES (%s, %s, %s, 1, 0.88, %s, 'strong', 'old reprocess fixture', 'old', '', '')
+                    RETURNING id
+                    """,
+                    (question_id, chunk["id"], document_id, rank),
+                ).fetchone()
+                old_match_ids.append(match["id"])
+            conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project_id,))
+            conn.commit()
+
+        require(document_id is not None and question_id is not None, "document reprocess fixture setup failed")
+        reset_document_for_reprocess(document_id)
         require(storage_path.exists(), "document reprocess moved or deleted original uploaded PDF")
         with connect() as conn:
-            saved_document = conn.execute("SELECT * FROM documents WHERE id = %s", (document["id"],)).fetchone()
-            page_count = conn.execute("SELECT COUNT(*) AS value FROM document_pages WHERE document_id = %s", (document["id"],)).fetchone()["value"]
-            chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (document["id"],)).fetchone()["value"]
-            match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE document_id = %s", (document["id"],)).fetchone()["value"]
+            saved_document = conn.execute("SELECT * FROM documents WHERE id = %s", (document_id,)).fetchone()
+            page_count = conn.execute("SELECT COUNT(*) AS value FROM document_pages WHERE document_id = %s", (document_id,)).fetchone()["value"]
+            chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (document_id,)).fetchone()["value"]
+            match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE document_id = %s", (document_id,)).fetchone()["value"]
             old_match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE id = ANY(%s)", (old_match_ids,)).fetchone()["value"]
-            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE id = %s", (question["id"],)).fetchone()["value"]
-            project_updated_at = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project["id"],)).fetchone()["updated_at"]
+            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE id = %s", (question_id,)).fetchone()["value"]
+            project_updated_at = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project_id,)).fetchone()["updated_at"]
         require(saved_document["status"] == "uploaded", "reprocess did not reset document status to uploaded")
         require(saved_document["processing_stage"] == "uploaded", "reprocess did not reset processing_stage to uploaded")
         require(saved_document["failure_code"] is None and saved_document["failure_reason"] is None and saved_document["failed_stage"] is None, "reprocess did not clear failure fields")
@@ -1000,9 +1007,10 @@ def check_v020_document_reprocess_no_duplicates() -> None:
         require(question_count == 1, "reprocess removed question history")
         require(str(project_updated_at) > "2001-01-01", "reprocess did not update project updated_at")
     finally:
-        with connect() as conn:
-            conn.execute("DELETE FROM projects WHERE id = %s", (project["id"],))
-            conn.commit()
+        if project_id is not None:
+            with connect() as conn:
+                conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                conn.commit()
         storage_path.unlink(missing_ok=True)
 
 
@@ -1552,76 +1560,83 @@ def check_v020_question_research_consistency() -> None:
 
     suffix = f"{os.getpid()}-{time.time_ns()}"
     query = [1.0, 0.0] + [0.0] * 1022
-    with connect() as conn:
-        project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-question-research-{suffix}",)).fetchone()
-        document = conn.execute(
-            """
-            INSERT INTO documents (
-              project_id, filename, content_type, storage_path, page_count,
-              extractable_page_count, chunk_count, text_quality, searchable,
-              status, processing_stage
-            )
-            VALUES (%s, 'question-research.pdf', 'application/pdf', 'uploads/question-research.pdf', 1, 1, 3, 'good', true, 'completed', 'completed')
-            RETURNING id
-            """,
-            (project["id"],),
-        ).fetchone()
-        page_text = "alpha beta old"
-        page = conn.execute(
-            """
-            INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
-            VALUES (%s, 1, %s, %s, %s)
-            RETURNING id
-            """,
-            (document["id"], page_text, page_text, len(page_text)),
-        ).fetchone()
-        chunks = {}
-        for text, embedding in [
-            ("alpha", [1.0, 0.0] + [0.0] * 1022),
-            ("beta", [0.6, 0.8] + [0.0] * 1022),
-            ("old", [0.0, 1.0] + [0.0] * 1022),
-        ]:
-            start = page_text.index(text)
-            chunks[text] = conn.execute(
+    project_id: int | None = None
+    question_id: int | None = None
+    old_match_id: int | None = None
+    try:
+        with connect() as conn:
+            project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-question-research-{suffix}",)).fetchone()
+            project_id = project["id"]
+            document = conn.execute(
                 """
-                INSERT INTO chunks (
-                  document_id, page_id, page_no, text, page_start_char, page_end_char,
-                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
                 )
-                VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-question-research-consistency')
+                VALUES (%s, 'question-research.pdf', 'application/pdf', 'uploads/question-research.pdf', 1, 1, 3, 'good', true, 'completed', 'completed')
                 RETURNING id
                 """,
-                (document["id"], page["id"], text, start, start + len(text), vector_literal(embedding)),
+                (project_id,),
             ).fetchone()
-        question = conn.execute(
-            """
-            INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
-            VALUES (%s, 'research query', 'completed', '2001-01-01 00:00:00+00', '2001-01-01 00:00:00+00')
-            RETURNING id
-            """,
-            (project["id"],),
-        ).fetchone()
-        old_match = conn.execute(
-            """
-            INSERT INTO question_matches (
-              question_id, chunk_id, document_id, page_no, score, rank,
-              confidence_level, hit_reason, source_text, context_before, context_after
-            )
-            VALUES (%s, %s, %s, 1, 0.88, 1, 'strong', 'old research fixture', 'old', 'alpha beta ', '')
-            RETURNING id
-            """,
-            (question["id"], chunks["old"]["id"], document["id"]),
-        ).fetchone()
-        conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project["id"],))
-        conn.commit()
+            page_text = "alpha beta old"
+            page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, %s, %s, %s)
+                RETURNING id
+                """,
+                (document["id"], page_text, page_text, len(page_text)),
+            ).fetchone()
+            chunks = {}
+            for text, embedding in [
+                ("alpha", [1.0, 0.0] + [0.0] * 1022),
+                ("beta", [0.6, 0.8] + [0.0] * 1022),
+                ("old", [0.0, 1.0] + [0.0] * 1022),
+            ]:
+                start = page_text.index(text)
+                chunks[text] = conn.execute(
+                    """
+                    INSERT INTO chunks (
+                      document_id, page_id, page_no, text, page_start_char, page_end_char,
+                      embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                    )
+                    VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-question-research-consistency')
+                    RETURNING id
+                    """,
+                    (document["id"], page["id"], text, start, start + len(text), vector_literal(embedding)),
+                ).fetchone()
+            question = conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'research query', 'completed', '2001-01-01 00:00:00+00', '2001-01-01 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            question_id = question["id"]
+            old_match = conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, 0.88, 1, 'strong', 'old research fixture', 'old', 'alpha beta ', '')
+                RETURNING id
+                """,
+                (question_id, chunks["old"]["id"], document["id"]),
+            ).fetchone()
+            old_match_id = old_match["id"]
+            conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project_id,))
+            conn.commit()
 
-    try:
-        research_question_with_embedding(question["id"], None, query)
+        require(question_id is not None and old_match_id is not None, "question research fixture setup failed")
+        research_question_with_embedding(question_id, None, query)
         client = TestClient(app)
-        response = client.get(f"/questions/{question['id']}")
+        response = client.get(f"/questions/{question_id}")
         require(response.status_code == 200, f"researched question expected HTTP 200, got {response.status_code}: {response.text}")
         body = response.json()
-        require(body["id"] == question["id"], "research changed question id")
+        require(body["id"] == question_id, "research changed question id")
         require(body["status"] == "completed", "research did not complete question")
         require(body["failure_code"] is None, "research completed question retained failure_code")
         require(body["failure_reason"] is None, "research completed question retained failure_reason")
@@ -1631,7 +1646,7 @@ def check_v020_question_research_consistency() -> None:
         require([match["rank"] for match in matches] == [1, 2], "research match ranks mismatch")
         require(matches[0]["confidence_level"] == "strong", "research top confidence_level mismatch")
         require(matches[1]["confidence_level"] == "reference", "research second confidence_level mismatch")
-        require(all(match["question_id"] == question["id"] for match in matches), "research returned match for another question")
+        require(all(match["question_id"] == question_id for match in matches), "research returned match for another question")
 
         with connect() as conn:
             counts = conn.execute(
@@ -1641,11 +1656,11 @@ def check_v020_question_research_consistency() -> None:
                   COUNT(*) FILTER (WHERE question_id = %s)::int AS current_match_count
                 FROM question_matches
                 """,
-                (old_match["id"], question["id"]),
+                (old_match_id, question_id),
             ).fetchone()
-            saved_question = conn.execute("SELECT last_search_at, updated_at FROM questions WHERE id = %s", (question["id"],)).fetchone()
-            saved_project = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project["id"],)).fetchone()
-            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE project_id = %s", (project["id"],)).fetchone()["value"]
+            saved_question = conn.execute("SELECT last_search_at, updated_at FROM questions WHERE id = %s", (question_id,)).fetchone()
+            saved_project = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project_id,)).fetchone()
+            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE project_id = %s", (project_id,)).fetchone()["value"]
         require(counts["old_match_count"] == 0, "research kept old question_match")
         require(counts["current_match_count"] == 2, "research did not persist exactly two current matches")
         require(question_count == 1, "research created a replacement question instead of preserving history record")
@@ -1653,9 +1668,15 @@ def check_v020_question_research_consistency() -> None:
         require(saved_question["updated_at"] == saved_question["last_search_at"], "research did not sync question updated_at with last_search_at")
         require(str(saved_project["updated_at"]) > "2001-01-01", "research did not update project updated_at")
     finally:
-        with connect() as conn:
-            conn.execute("DELETE FROM projects WHERE id = %s", (project["id"],))
-            conn.commit()
+        if project_id is not None:
+            with connect() as conn:
+                conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                conn.commit()
+
+
+def check_v020_reprocess_research_consistency() -> None:
+    check_v020_document_reprocess_no_duplicates()
+    check_v020_question_research_consistency()
 
 
 def main() -> None:
@@ -1694,6 +1715,7 @@ def main() -> None:
         "v020-confidence-levels": check_v020_confidence_levels,
         "v020-confidence-level-fields": check_v020_confidence_level_fields,
         "v020-question-research-consistency": check_v020_question_research_consistency,
+        "v020-reprocess-research-consistency": check_v020_reprocess_research_consistency,
     }
     if check not in checks:
         raise SystemExit(f"unsupported CHECK={check}")
