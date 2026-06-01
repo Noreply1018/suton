@@ -116,6 +116,7 @@ v020-db-test:
 v020-api-test:
 	CHECK=v020-project-document-api $(MAKE) verify-api-contract
 	CHECK=v020-document-detail-fields $(MAKE) verify-api-contract
+	CHECK=v020-document-scope-disabled $(MAKE) verify-api-contract
 	CHECK=v020-project-name-limits $(MAKE) verify-api-contract
 	CHECK=v020-question-scope-errors $(MAKE) verify-api-contract
 	CHECK=v020-stale-source $(MAKE) verify-api-contract

@@ -459,6 +459,70 @@ def check_document_detail_fields() -> None:
         delete_project_records([project_id])
 
 
+def check_document_scope_disabled() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"不可检索资料范围-{suffix}")
+    try:
+        searchable_id = create_document_record(
+            project_id,
+            filename="scope-searchable.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        failed_id = create_document_record(
+            project_id,
+            filename="scope-failed.pdf",
+            status="failed",
+            processing_stage="failed",
+            failed_stage="embedding",
+            failure_code="embedding_failed",
+            failure_reason="生成 embedding 失败",
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        unsupported_id = create_document_record(
+            project_id,
+            filename="scope-unsupported.pdf",
+            status="unsupported",
+            processing_stage="failed",
+            failed_stage="extracting_text",
+            failure_code="no_text_layer",
+            failure_reason="PDF 无可提取文字层，v0.2.0 不进入 OCR",
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        no_chunk_id = create_document_record(
+            project_id,
+            filename="scope-no-chunk.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=False,
+            chunk_count=0,
+            text_quality="good",
+        )
+
+        for document_id in [failed_id, unsupported_id, no_chunk_id]:
+            response = client.post(
+                f"/projects/{project_id}/questions",
+                json={"text": f"不可检索资料 {document_id}", "document_ids": [document_id]},
+            )
+            require_status(response, 400, "检索范围包含不可用资料")
+
+        mixed = client.post(
+            f"/projects/{project_id}/questions",
+            json={"text": "混合可检索与不可检索资料", "document_ids": [searchable_id, failed_id]},
+        )
+        require_status(mixed, 400, "检索范围包含不可用资料")
+    finally:
+        delete_project_records([project_id])
+
+
 def check_question_scope_errors() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -654,6 +718,7 @@ def main() -> None:
     checks = {
         "v020-project-document-api": check_project_document_api,
         "v020-document-detail-fields": check_document_detail_fields,
+        "v020-document-scope-disabled": check_document_scope_disabled,
         "v020-project-name-limits": check_project_name_limits,
         "v020-question-scope-errors": check_question_scope_errors,
         "v020-stale-source": check_stale_source,
