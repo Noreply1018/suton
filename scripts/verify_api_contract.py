@@ -1692,6 +1692,22 @@ def check_stale_source() -> None:
         delete_project_records([project_id])
 
 
+def check_model_api() -> None:
+    from verify_db import check_v020_source_detail_fields
+
+    check_project_document_api()
+    check_document_detail_fields()
+    check_document_reprocess_api()
+    check_delete_api()
+    check_document_scope_disabled()
+    check_pdf_file_api()
+    check_project_name_limits()
+    check_question_scope_errors()
+    check_question_api()
+    check_stale_source()
+    check_v020_source_detail_fields()
+
+
 def main() -> None:
     check = os.getenv("CHECK", "v020-project-document-api")
     checks = {
@@ -1709,6 +1725,7 @@ def main() -> None:
         "v020-question-embedding-failure-api": check_question_embedding_failure_api,
         "v020-question-api": check_question_api,
         "v020-stale-source": check_stale_source,
+        "v020-model-api": check_model_api,
     }
     if check not in checks:
         raise SystemExit(f"unsupported CHECK={check}")

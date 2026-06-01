@@ -136,3 +136,4 @@ v020-api-test:
 	CHECK=v020-question-embedding-failure-api $(MAKE) verify-api-contract
 	CHECK=v020-question-api $(MAKE) verify-api-contract
 	CHECK=v020-stale-source $(MAKE) verify-api-contract
+	CHECK=v020-model-api $(MAKE) verify-api-contract
