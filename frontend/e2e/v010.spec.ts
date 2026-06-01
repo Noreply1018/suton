@@ -173,6 +173,39 @@ test("v020-first-empty-project：首次空工作台不使用默认项目名", as
   await expect(page.getByText("高等数学（上）期末复习")).toHaveCount(0);
 });
 
+test("visual-first-empty-project：生成首次空工作台桌面和移动截图", async ({ page }) => {
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const desktopScreenshotPath = resolve(evidenceDir, "1440x900-first-empty-project.png");
+  const mobileScreenshotPath = resolve(evidenceDir, "390x844-first-empty-project.png");
+  mkdirSync(evidenceDir, { recursive: true });
+
+  for (const viewport of [
+    { width: 1440, height: 900, screenshotPath: desktopScreenshotPath },
+    { width: 390, height: 844, screenshotPath: mobileScreenshotPath }
+  ]) {
+    const projectsResponse = page.waitForResponse(
+      (response) => response.url().endsWith("/projects") && response.request().method() === "GET"
+    );
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto("/");
+    expect((await projectsResponse).status()).toBe(200);
+
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("sidebar-nav")).toBeVisible();
+    await expect(page.getByTestId("trace-workspace")).toBeVisible();
+    await expect(page.getByTestId("evidence-preview")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "尚未创建项目" })).toBeVisible();
+    await expect(page.getByTestId("v020-first-empty-project")).toContainText("添加第一份课程资料");
+    await expect(page.getByText("高等数学（上）期末复习")).toHaveCount(0);
+
+    await page.screenshot({ path: viewport.screenshotPath, fullPage: true });
+    expect(statSync(viewport.screenshotPath).size).toBeGreaterThan(1000);
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(1);
+  }
+});
+
 test("v020-project-create：新建项目不使用演示默认名", async ({ page }) => {
   await page.goto("/");
   const name = `线性代数期末 ${Date.now()}`;
