@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from app.db import connect
 from app.processing import create_uploaded_document, queue_process_document, search_question
 
 app = FastAPI(title="Suton v0.1.0 API")
+logger = logging.getLogger(__name__)
 
 TEXT_QUALITY_LABELS = {
     "good": "良好",
@@ -122,6 +124,12 @@ def get_document(document_id: int) -> dict:
     return document_response(document)
 
 
+@app.delete("/documents/{document_id}")
+def delete_document(document_id: int) -> dict:
+    delete_document_with_files(document_id)
+    return {"deleted": True, "document_id": document_id}
+
+
 @app.post("/projects/{project_id}/documents")
 def upload_document(project_id: int, file: UploadFile = File(...)) -> dict:
     if file.content_type != "application/pdf" or not file.filename.lower().endswith(".pdf"):
@@ -145,6 +153,72 @@ def upload_document(project_id: int, file: UploadFile = File(...)) -> dict:
     document_id = create_uploaded_document(project_id, safe_name, "application/pdf", str(storage_path))
     queue_process_document(document_id)
     return get_document(document_id)
+
+
+def delete_document_with_files(document_id: int) -> None:
+    upload_root = Path(settings.upload_dir).resolve()
+    trash_dir: Path | None = None
+    moved_files: list[tuple[Path, Path]] = []
+    try:
+        with connect() as conn:
+            with conn.transaction():
+                document = conn.execute(
+                    "SELECT id, project_id, storage_path FROM documents WHERE id = %s FOR UPDATE",
+                    (document_id,),
+                ).fetchone()
+                if not document:
+                    raise HTTPException(status_code=404, detail="资料不存在")
+
+                txid = conn.execute("SELECT txid_current() AS value").fetchone()["value"]
+                trash_dir = upload_root / ".delete-trash" / f"document-{document_id}-{txid}"
+                try:
+                    trash_dir.mkdir(parents=True, exist_ok=False)
+                    storage_path = safe_upload_path(document["storage_path"], upload_root)
+                    if not storage_path.is_file():
+                        raise OSError(f"document file missing: {storage_path}")
+                    trash_path = trash_dir / f"{document_id}-{storage_path.name}"
+                    storage_path.replace(trash_path)
+                    moved_files.append((trash_path, storage_path))
+                except OSError as exc:
+                    raise HTTPException(status_code=500, detail="资料文件删除失败") from exc
+
+                conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (document["project_id"],))
+                conn.execute("DELETE FROM documents WHERE id = %s", (document_id,))
+    except HTTPException:
+        restore_deleted_files(moved_files, trash_dir)
+        raise
+    except Exception as exc:
+        restore_deleted_files(moved_files, trash_dir)
+        raise HTTPException(status_code=500, detail="资料文件删除失败") from exc
+
+    if trash_dir is not None:
+        try:
+            shutil.rmtree(trash_dir)
+        except OSError:
+            logger.exception("failed to clean document delete trash: %s", trash_dir)
+
+
+def safe_upload_path(raw_path: str, upload_root: Path) -> Path:
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    resolved = path.resolve()
+    try:
+        resolved.relative_to(upload_root)
+    except ValueError as exc:
+        raise OSError(f"document file is outside upload dir: {resolved}") from exc
+    return resolved
+
+
+def restore_deleted_files(moved_files: list[tuple[Path, Path]], trash_dir: Path | None) -> None:
+    for trash_path, original_path in reversed(moved_files):
+        try:
+            original_path.parent.mkdir(parents=True, exist_ok=True)
+            trash_path.replace(original_path)
+        except OSError:
+            logger.exception("failed to restore deleted file: %s -> %s", trash_path, original_path)
+    if trash_dir is not None:
+        shutil.rmtree(trash_dir, ignore_errors=True)
 
 
 @app.post("/projects/{project_id}/questions")

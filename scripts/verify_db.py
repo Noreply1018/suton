@@ -5,6 +5,7 @@ from pathlib import Path
 import runpy
 import time
 
+from app.config import settings
 from app.db import connect, vector_literal
 from app.processing import confidence_level_for_score, document_searchable_for_fields, process_document, text_quality_for_counts
 
@@ -576,6 +577,126 @@ def check_v020_processing_failure_fields() -> None:
                 conn.commit()
 
 
+def check_v020_document_hard_delete() -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    upload_root = Path(settings.upload_dir).resolve()
+    upload_root.mkdir(parents=True, exist_ok=True)
+    storage_path = upload_root / f"v020-document-delete-{suffix}.pdf"
+    missing_path = upload_root / f"v020-document-delete-missing-{suffix}.pdf"
+    storage_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+    project_id: int | None = None
+    document_id: int | None = None
+    missing_document_id: int | None = None
+    match_id: int | None = None
+    try:
+        with connect() as conn:
+            project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-document-delete-{suffix}",)).fetchone()
+            project_id = int(project["id"])
+            conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project_id,))
+            before_delete_updated_at = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project_id,)).fetchone()["updated_at"]
+            document = conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
+                )
+                VALUES (%s, 'delete-me.pdf', 'application/pdf', %s, 1, 1, 1, 'good', true, 'completed', 'completed')
+                RETURNING id
+                """,
+                (project_id, str(storage_path)),
+            ).fetchone()
+            document_id = int(document["id"])
+            page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, 'delete source text', 'delete source text', 18)
+                RETURNING id
+                """,
+                (document_id,),
+            ).fetchone()
+            chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, 'delete source', 0, 13, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-document-hard-delete')
+                RETURNING id
+                """,
+                (document_id, page["id"], vector_literal([1.0] + [0.0] * 1023)),
+            ).fetchone()
+            question = conn.execute(
+                "INSERT INTO questions (project_id, text, status) VALUES (%s, 'delete source query', 'completed') RETURNING id",
+                (project_id,),
+            ).fetchone()
+            match = conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, 0.91, 1, 'strong', 'delete consistency fixture', 'delete source', '', ' text')
+                RETURNING id
+                """,
+                (question["id"], chunk["id"], document_id),
+            ).fetchone()
+            match_id = int(match["id"])
+            missing_document = conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
+                )
+                VALUES (%s, 'missing-delete.pdf', 'application/pdf', %s, 1, 1, 1, 'good', true, 'completed', 'completed')
+                RETURNING id
+                """,
+                (project_id, str(missing_path)),
+            ).fetchone()
+            missing_document_id = int(missing_document["id"])
+            conn.commit()
+
+        client = TestClient(app)
+        deleted = client.delete(f"/documents/{document_id}")
+        require(deleted.status_code == 200, f"document delete expected HTTP 200, got {deleted.status_code}: {deleted.text}")
+        require(deleted.json() == {"deleted": True, "document_id": document_id}, f"document delete response mismatch: {deleted.json()}")
+        require(not storage_path.exists(), "deleted document file still exists")
+        trash_matches = list((upload_root / ".delete-trash").glob(f"document-{document_id}-*"))
+        require(not trash_matches, f"deleted document trash directory was not cleaned: {trash_matches}")
+
+        with connect() as conn:
+            document_count = conn.execute("SELECT COUNT(*) AS value FROM documents WHERE id = %s", (document_id,)).fetchone()["value"]
+            page_count = conn.execute("SELECT COUNT(*) AS value FROM document_pages WHERE document_id = %s", (document_id,)).fetchone()["value"]
+            chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (document_id,)).fetchone()["value"]
+            match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE id = %s", (match_id,)).fetchone()["value"]
+            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE project_id = %s", (project_id,)).fetchone()["value"]
+            after_delete_updated_at = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project_id,)).fetchone()["updated_at"]
+        require(document_count == 0, "deleted document row still exists")
+        require(page_count == 0, "deleted document pages still exist")
+        require(chunk_count == 0, "deleted document chunks still exist")
+        require(match_count == 0, "deleted document question_matches still exist")
+        require(question_count == 1, "document delete removed question history")
+        require(after_delete_updated_at > before_delete_updated_at, "document delete did not update project updated_at")
+
+        missing = client.delete(f"/documents/{missing_document_id}")
+        require(missing.status_code == 500, f"missing-file document delete expected HTTP 500, got {missing.status_code}: {missing.text}")
+        require(missing.json()["detail"] == "资料文件删除失败", f"missing-file delete detail mismatch: {missing.json()}")
+        with connect() as conn:
+            rollback_count = conn.execute("SELECT COUNT(*) AS value FROM documents WHERE id = %s", (missing_document_id,)).fetchone()["value"]
+        require(rollback_count == 1, "missing-file delete did not roll back database row")
+    finally:
+        if project_id is not None:
+            with connect() as conn:
+                conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                conn.commit()
+        storage_path.unlink(missing_ok=True)
+
+
 def check_v020_source_detail_fields() -> None:
     from fastapi.testclient import TestClient
 
@@ -1121,6 +1242,7 @@ def main() -> None:
         "v020-project-name-migration": check_v020_project_name_migration,
         "v020-document-health": check_v020_document_health_fields,
         "v020-document-health-fields": check_v020_document_health_fields,
+        "v020-document-hard-delete": check_v020_document_hard_delete,
         "v020-processing-failure-fields": check_v020_processing_failure_fields,
         "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,
