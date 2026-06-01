@@ -23,6 +23,7 @@
   - `documents.text_quality` 固定枚举为 `good`、`fair`、`poor`、`unsearchable`，展示文案分别为 `良好`、`一般`、`不足`、`不可检索`。
   - `chunks` 必须包含 `id`、`document_id`、`page_id`、`page_no`、`text`、`page_start_char`、`page_end_char`、`embedding`、`embedding_provider`、`embedding_model`、`embedding_dimension`、`embedding_call`、`created_at`；`page_start_char` 和 `page_end_char` 是 chunk 在规范化页文本中的半开区间 `[start, end)`。
   - `questions` 必须包含 `id`、`project_id`、`text`、`status`、`failure_code`、`failure_reason`、`last_search_at`、`created_at`、`updated_at`；`status` 固定枚举为 `searching`、`completed`、`no_reliable_source`、`failed`；`failure_code` 固定枚举为 `embedding_failed`、`source_context_failed`、`search_failed`。
+  - `questions.failure_reason` 必须按 `failure_code` 固定映射：`embedding_failed` 为 `题目向量生成失败`；`source_context_failed` 为 `来源上下文生成失败`；`search_failed` 为 `题目检索失败`；未失败时 `failure_code` 和 `failure_reason` 均为 `NULL`。
   - `question_matches` 必须包含 `id`、`question_id`、`chunk_id`、`document_id`、`page_no`、`score`、`rank`、`confidence_level`、`hit_reason`、`source_text`、`context_before`、`context_after`、`created_at`。
   - `question_matches.confidence_level` 固定枚举为 `strong`、`reference`、`low`；展示文案分别为 `强相关`、`可参考`、`低置信`。
   - `question_matches.source_text` 固定保存完整命中 chunk 文本，写入前执行 trim，不截断、不摘要、不改写。
@@ -39,10 +40,11 @@
   - `POST /projects/{project_id}/documents` 仅接受 PDF；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；非 PDF 返回 HTTP 400，`detail` 固定为 `v0.2.0 只支持上传 PDF 文件`；空文件返回 HTTP 400，`detail` 固定为 `上传文件不能为空`；文件写入本地存储失败返回 HTTP 500，`detail` 固定为 `资料文件保存失败`；成功后返回资料对象，`status` 为 `uploaded`，`processing_stage` 为 `uploaded`。
   - `POST /documents/{document_id}/reprocess` 清除该资料旧页面文本、chunk、embedding 和关联来源结果后重新排队处理；资料不存在返回 HTTP 404，`detail` 固定为 `资料不存在`；资料文件不存在返回 HTTP 404，`detail` 固定为 `资料文件不存在`；资料状态为 `uploaded` 或 `processing` 时返回 HTTP 409，`detail` 固定为 `资料正在处理`；重新排队失败返回 HTTP 500，`detail` 固定为 `资料重新处理排队失败`；成功返回资料对象，`status` 为 `uploaded`，`processing_stage` 为 `uploaded`。
   - `DELETE /documents/{document_id}` 执行硬删除；成功返回 `{ "deleted": true, "document_id": number }`；资料不存在返回 HTTP 404，`detail` 固定为 `资料不存在`；上传文件进入删除暂存区失败时返回 HTTP 500，`detail` 固定为 `资料文件删除失败`，数据库事务必须回滚。
-  - `POST /projects/{project_id}/questions` 请求体为 `{ "text": string, "document_ids": number[] | null }`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；题目文本 trim 后为空返回 HTTP 400，`detail` 固定为 `题目不能为空`；`document_ids` 为 `null` 表示全部已完成且可检索资料；空数组返回 HTTP 400，`detail` 固定为 `检索范围不能为空`；指定资料跨项目、未完成或不可检索时返回 HTTP 400，`detail` 固定为 `检索范围包含不可用资料`；当前项目没有可检索资料时返回 HTTP 409，`detail` 固定为 `需先上传并处理资料`。
-  - `GET /projects/{project_id}/questions` 返回题目历史，按 `last_search_at DESC, id DESC` 排序，字段包含最近一次检索状态和可见结果数量。
-  - `POST /questions/{question_id}/research` 请求体为 `{ "document_ids": number[] | null }`；`document_ids` 为 `null` 表示当前项目全部已完成且可检索资料；空数组返回 HTTP 400，`detail` 固定为 `检索范围不能为空`；题目不存在返回 HTTP 404，`detail` 固定为 `题目不存在`；资料跨项目、未完成或不可检索时返回 HTTP 400，`detail` 固定为 `检索范围包含不可用资料`；成功后删除该题旧 `question_matches` 并写入新结果。
-  - `GET /questions/{question_id}` 返回题目和最近一次可见来源结果；score < 0.40 的候选不得返回。
+  - `POST /projects/{project_id}/questions` 请求体为 `{ "text": string, "document_ids": number[] | null }`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`；题目文本 trim 后为空返回 HTTP 400，`detail` 固定为 `题目不能为空`；`document_ids` 为 `null` 表示全部已完成且可检索资料；空数组返回 HTTP 400，`detail` 固定为 `检索范围不能为空`；指定资料跨项目、未完成或不可检索时返回 HTTP 400，`detail` 固定为 `检索范围包含不可用资料`；当前项目没有可检索资料时返回 HTTP 409，`detail` 固定为 `需先上传并处理资料`；请求校验通过后返回 HTTP 200 题目详情对象，包括 `completed`、`no_reliable_source` 和 `failed` 三种检索完成状态。
+  - 题目详情对象字段固定为 `id`、`project_id`、`text`、`status`、`failure_code`、`failure_reason`、`last_search_at`、`created_at`、`updated_at`、`matches`；`matches` 数组项字段固定为 `id`、`question_id`、`document_id`、`document_filename`、`page_no`、`chunk_id`、`score`、`rank`、`confidence_level`、`confidence_label`、`hit_reason`、`source_text`、`context_before`、`context_after`、`pdf_url`。
+  - `GET /projects/{project_id}/questions` 返回题目历史，按 `last_search_at DESC, id DESC` 排序；数组项字段固定为 `id`、`project_id`、`text`、`status`、`failure_code`、`failure_reason`、`last_search_at`、`updated_at`、`match_count`、`top_confidence_level`、`top_confidence_label`；项目不存在返回 HTTP 404，`detail` 固定为 `项目不存在`。
+  - `POST /questions/{question_id}/research` 请求体为 `{ "document_ids": number[] | null }`；`document_ids` 为 `null` 表示当前项目全部已完成且可检索资料；空数组返回 HTTP 400，`detail` 固定为 `检索范围不能为空`；题目不存在返回 HTTP 404，`detail` 固定为 `题目不存在`；资料跨项目、未完成或不可检索时返回 HTTP 400，`detail` 固定为 `检索范围包含不可用资料`；请求校验通过后在同一事务内删除该题旧 `question_matches`、写入新结果、更新 `questions.status` 和 `last_search_at`，并返回 HTTP 200 题目详情对象，包括 `completed`、`no_reliable_source` 和 `failed` 三种检索完成状态。
+  - `GET /questions/{question_id}` 返回题目详情对象；题目不存在返回 HTTP 404，`detail` 固定为 `题目不存在`；score < 0.40 的候选不得返回。
   - `GET /questions/{question_id}/matches/{match_id}` 返回来源详情；资料或 chunk 已删除时返回 HTTP 404，`detail` 固定为 `来源已失效`。
   - `GET /documents/{document_id}/file` 返回 PDF 文件；文件缺失时返回 HTTP 404，`detail` 固定为 `资料文件不存在`。
 - 删除事务与一致性规则：
@@ -69,6 +71,7 @@
   - 来源详情接口返回完整来源字段：文件 ID、文件名、页码、chunk ID、原文片段、上下文、PDF 页入口、pgvector 相似度分数、排序位置和确定性命中原因。
   - 无来源时接口返回空结果；来源失效时接口返回明确错误；两种场景均不返回伪来源。
   - 所有新增和调整接口遵守本条目接口契约，错误状态返回固定 HTTP 状态码和固定 `detail` 文案。
+  - 题目详情、题目历史和重新检索接口返回字段与 `feature-005-question-workflow.md` 完全一致。
 - 验证矩阵：
 
 | 场景 | 环境 | 前置条件 | 操作命令 | 预期结果 | 实际结果 | 证据 | 结论 |
@@ -81,5 +84,6 @@
 | 接口契约 | Python、uv、真实 FastAPI、真实 PostgreSQL、本地文件系统、Linux | 已执行 `make migrate` 并准备项目、资料和题目样例 | 执行 `make verify-api-contract CHECK=v020-model-api` | 所有 v0.2.0 项目、资料、题目和来源接口字段、HTTP 状态码、固定错误文案符合 spec | 未验证 | 待补充 | 阻塞 |
 | 重处理与重新检索一致性 | Python、uv、真实 FastAPI、真实 PostgreSQL/pgvector、真实 Redis/RQ、Linux | 已处理资料并保存题目来源结果 | 执行 `make verify-db CHECK=v020-reprocess-research-consistency` | 资料重处理删除旧索引和旧来源；题目重新检索替换当前结果；旧题目记录保留 | 未验证 | 待补充 | 阻塞 |
 | 删除暂存清理 | Python、uv、真实 FastAPI、真实 PostgreSQL、本地文件系统、Linux | 已执行项目删除和资料删除场景 | 执行 `make verify-db CHECK=v020-delete-trash-cleanup` | 已提交删除不残留可恢复来源；删除暂存目录为空或只包含可追踪失败日志记录 | 未验证 | 待补充 | 阻塞 |
+| 题目接口字段 | Python、uv、真实 FastAPI、真实 PostgreSQL/pgvector、Linux | 已准备题目检索、重新检索、无可靠来源和失败样例 | 执行 `make verify-api-contract CHECK=v020-question-api` | 题目详情、历史列表、重新检索响应、失败字段、置信文案和无可靠来源状态符合 spec | 未验证 | 待补充 | 阻塞 |
 
 - 风险与回滚：数据语义一旦含糊会导致前端状态混乱。实现前必须先固定接口和迁移策略。

@@ -20,8 +20,23 @@
   - 后端最多返回前 8 条 score >= 0.40 的来源结果；排序固定为 score 降序，score 相同按 chunk ID 升序。
   - 没有 score >= 0.40 的来源结果时，题目状态固定为 `no_reliable_source`，响应中 `matches` 为空数组。
   - 重新检索请求体固定为 `{ "document_ids": number[] | null }`，错误契约与新题检索一致；重新检索成功后，该题旧结果必须从当前可见结果中消失；若重新检索得到无可靠来源，历史题目仍保留，但显示无可靠来源状态。
-  - 题目历史只展示题目文本、最近检索时间、状态、结果数量和最高置信层级；不在历史列表中展开长片段。
+  - 新题检索和重新检索响应体固定为题目详情对象，字段为 `id`、`project_id`、`text`、`status`、`failure_code`、`failure_reason`、`last_search_at`、`created_at`、`updated_at`、`matches`。
+  - `matches` 数组项字段固定为 `id`、`question_id`、`document_id`、`document_filename`、`page_no`、`chunk_id`、`score`、`rank`、`confidence_level`、`confidence_label`、`hit_reason`、`source_text`、`context_before`、`context_after`、`pdf_url`。
+  - `confidence_label` 必须由后端按 `confidence_level` 映射生成：`strong` 为 `强相关`，`reference` 为 `可参考`，`low` 为 `低置信`；前端不得自行推导不同文案。
+  - 题目检索执行失败时 HTTP 状态固定为 200，响应体仍返回题目详情对象，题目状态固定为 `failed`，`matches` 为空数组；`failure_code` 固定枚举为 `embedding_failed`、`source_context_failed`、`search_failed`；`failure_reason` 固定文案分别为 `题目向量生成失败`、`来源上下文生成失败`、`题目检索失败`。
+  - 检索成功但无可靠来源时，`status` 为 `no_reliable_source`，`matches` 为空数组，`failure_code` 和 `failure_reason` 均为 `null`。
+  - 重新检索必须在同一数据库事务内删除旧 `question_matches`、写入新 `question_matches`、更新 `questions.status` 和 `last_search_at`；事务失败时不得展示部分新旧混合结果。
+  - `last_search_at` 在新题检索、重新检索、无可靠来源和检索失败时都必须更新为本次检索完成时间；`updated_at` 与 `last_search_at` 同步更新。
+  - `GET /projects/{project_id}/questions` 历史响应固定为数组，数组项字段为 `id`、`project_id`、`text`、`status`、`failure_code`、`failure_reason`、`last_search_at`、`updated_at`、`match_count`、`top_confidence_level`、`top_confidence_label`；不包含 `source_text`、`context_before`、`context_after`。
+  - 历史列表中 `status = no_reliable_source` 时 `top_confidence_level` 为 `null`，`top_confidence_label` 为 `无可靠来源`；`status = failed` 时 `top_confidence_level` 和 `top_confidence_label` 均为 `null`，历史行必须展示 `failure_reason`；`status = completed` 时 `top_confidence_level` 和 `top_confidence_label` 等于最高置信层级。
+  - `GET /questions/{question_id}` 必须返回同一题目详情对象；题目不存在返回 HTTP 404，`detail` 固定为 `题目不存在`。
+  - 题目历史展示题目文本、最近检索时间、状态、结果数量和最高置信层级；当 `status = failed` 时展示 `failure_reason`；不在历史列表中展开长片段。
   - 前端不得显示 AI 生成答案、推测答案或与来源无关的讲解。
+- 无可靠来源交互契约：
+  - 无可靠来源状态标题固定为 `未找到可靠来源`，正文固定为 `当前资料中没有达到可信阈值的来源片段。`。
+  - 三个行动入口必须固定为 `扩大资料范围`、`检查资料索引`、`修改题目表述`。
+  - `扩大资料范围` 打开检索范围选择；`检查资料索引` 跳转到当前项目资料管理区并高亮不可检索资料；当前项目不存在不可检索资料时，不高亮任何资料，并在资料管理区顶部展示固定提示 `当前资料均可检索，请上传更多相关资料或修改题目表述`；`修改题目表述` 聚焦题目输入框且保留原题文本。
+  - 无可靠来源状态不得创建虚拟来源、不得展示 AI 猜测、不得把 score < 0.40 的候选降级展示。
 - 验收标准：
   - 用户可以输入新题目并检索。
   - 检索时展示明确 loading 状态。
@@ -43,6 +58,8 @@
 | 历史与重新检索 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 已存在多道题目记录 | 执行 `make verify-e2e SCENARIO=v020-question-history-research` | 历史题目展示最近一次检索结果；重新检索后替换该题当前可见结果 | 未验证 | 待补充 | 阻塞 |
 | 置信层级 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL/pgvector、Linux、Playwright 浏览器 | 验证脚本在真实 PostgreSQL/pgvector 中创建 1 个测试项目、1 份测试资料、3 个固定 1024 维向量 chunk 和 1 个固定查询向量，三条候选 score 分别落入 `strong`、`reference`、`low` 区间；该测试不调用 embedding provider | 执行 `make verify-e2e SCENARIO=v020-confidence-levels`；执行 `make verify-db CHECK=v020-confidence-levels` | 来源结果按固定向量 score 生成 `strong`、`reference`、`low`，前端展示强相关、可参考、低置信 | 未验证 | 待补充 | 阻塞 |
 | 检索范围错误 | Node.js、pnpm、Python、uv、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器 | 已存在当前项目和至少一份不可用或跨项目资料 | 执行 `make verify-e2e SCENARIO=v020-question-scope-errors`；执行 `make verify-api-contract CHECK=v020-question-scope-errors` | 空范围、跨项目资料、未完成资料和不可检索资料均返回固定错误，页面不产生伪结果 | 未验证 | 待补充 | 阻塞 |
-| 长题目历史布局 | Node.js、pnpm、真实 Web、Linux、Playwright 浏览器、390px 和 1440px viewport | 已创建包含长题干的多道历史题目 | 执行 `make verify-e2e SCENARIO=v020-question-history-long-text`；执行 `make verify-visual CHECK=question-history-long-text` | 历史列表不撑开页面，不遮挡操作入口，长文本截断或换行符合布局 | 未验证 | 待补充 | 阻塞 |
+| 长题目历史布局 | Node.js、pnpm、真实 Web、Linux、Playwright 浏览器、390x844 和 1440x900 viewport | 已创建包含长题干的多道历史题目 | 执行 `make verify-e2e SCENARIO=v020-question-history-long-text`；执行 `make verify-visual CHECK=question-history-long-text` | 历史列表不撑开页面，不遮挡操作入口，长文本截断或换行符合布局 | 未验证 | 待补充 | 阻塞 |
+| 题目接口契约 | Python、uv、真实 FastAPI、真实 PostgreSQL/pgvector、Linux | 已准备项目、可检索资料、无匹配题目和失败注入场景 | 执行 `make verify-api-contract CHECK=v020-question-api` | 新题检索、重新检索、历史列表和题目详情响应字段、错误文案、状态和无可靠来源契约符合 spec | 未验证 | 待补充 | 阻塞 |
+| 无可靠来源行动入口 | Node.js、pnpm、真实 Web、真实 FastAPI、真实 PostgreSQL、Linux、Playwright 浏览器、390x844 和 1440x900 viewport | 已检索 `tests/fixtures/unmatched-question.txt` 得到无可靠来源状态 | 执行 `make verify-e2e SCENARIO=v020-no-source-actions`；执行 `make verify-visual CHECK=no-source-actions` | 三个行动入口分别打开范围选择、跳转资料索引并高亮不可检索资料、聚焦题目输入框并保留原题文本 | 未验证 | 待补充 | 阻塞 |
 
 - 风险与回滚：题目历史可能膨胀成错题本。v0.2.0 只保存和回看检索工作流，不做学习管理。
