@@ -251,6 +251,30 @@ def create_uploaded_document(project_id: int, filename: str, content_type: str, 
         return row["id"]
 
 
+def reset_document_for_reprocess(document_id: int) -> None:
+    with connect() as conn:
+        with conn.transaction():
+            document = conn.execute(
+                "SELECT id, project_id FROM documents WHERE id = %s FOR UPDATE",
+                (document_id,),
+            ).fetchone()
+            if not document:
+                raise ValueError(f"document not found: {document_id}")
+            conn.execute("DELETE FROM question_matches WHERE document_id = %s", (document_id,))
+            conn.execute("DELETE FROM document_pages WHERE document_id = %s", (document_id,))
+            conn.execute(
+                """
+                UPDATE documents
+                SET status = 'uploaded', processing_stage = 'uploaded',
+                    failed_stage = NULL, failure_code = NULL, failure_reason = NULL,
+                    searchable = false, updated_at = now()
+                WHERE id = %s
+                """,
+                (document_id,),
+            )
+            conn.execute("UPDATE projects SET updated_at = now() WHERE id = %s", (document["project_id"],))
+
+
 def search_question(project_id: int, text: str, document_ids: list[int] | None = None) -> int:
     query_embedding = embed_texts([text])[0]
     with connect() as conn:

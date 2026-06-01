@@ -11,7 +11,13 @@ from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.db import connect
-from app.processing import create_uploaded_document, queue_process_document, research_question, search_question
+from app.processing import (
+    create_uploaded_document,
+    queue_process_document,
+    research_question,
+    reset_document_for_reprocess,
+    search_question,
+)
 
 app = FastAPI(title="Suton v0.1.0 API")
 logger = logging.getLogger(__name__)
@@ -134,6 +140,27 @@ def get_document(document_id: int) -> dict:
 def delete_document(document_id: int) -> dict:
     delete_document_with_files(document_id)
     return {"deleted": True, "document_id": document_id}
+
+
+@app.post("/documents/{document_id}/reprocess")
+def reprocess_document(document_id: int) -> dict:
+    with connect() as conn:
+        document = conn.execute(
+            "SELECT status, storage_path FROM documents WHERE id = %s",
+            (document_id,),
+        ).fetchone()
+    if not document:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    if document["status"] in {"uploaded", "processing"}:
+        raise HTTPException(status_code=409, detail="资料正在处理")
+    if not Path(document["storage_path"]).exists():
+        raise HTTPException(status_code=404, detail="资料文件不存在")
+    reset_document_for_reprocess(document_id)
+    try:
+        queue_process_document(document_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="资料重新处理排队失败") from exc
+    return get_document(document_id)
 
 
 @app.post("/projects/{project_id}/documents")

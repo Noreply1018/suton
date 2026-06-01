@@ -13,6 +13,7 @@ from app.processing import (
     document_searchable_for_fields,
     process_document,
     research_question_with_embedding,
+    reset_document_for_reprocess,
     text_quality_for_counts,
 )
 
@@ -913,6 +914,98 @@ def is_delete_operation_dir(name: str) -> bool:
     return len(parts) == 3 and parts[0] in {"project", "document"} and parts[1].isdigit() and parts[2].isdigit()
 
 
+def check_v020_document_reprocess_no_duplicates() -> None:
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    upload_root = Path(settings.upload_dir)
+    upload_root.mkdir(parents=True, exist_ok=True)
+    storage_path = upload_root / f"v020-document-reprocess-{suffix}.pdf"
+    storage_path.write_bytes(b"%PDF-1.4\n%%EOF\n")
+    with connect() as conn:
+        project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-document-reprocess-{suffix}",)).fetchone()
+        document = conn.execute(
+            """
+            INSERT INTO documents (
+              project_id, filename, content_type, storage_path, page_count,
+              extractable_page_count, chunk_count, text_quality, searchable,
+              status, processing_stage, processed_at
+            )
+            VALUES (%s, 'reprocess.pdf', 'application/pdf', %s, 1, 1, 2, 'good', true, 'completed', 'completed', now())
+            RETURNING id
+            """,
+            (project["id"], str(storage_path)),
+        ).fetchone()
+        page = conn.execute(
+            """
+            INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+            VALUES (%s, 1, 'old alpha old beta', 'old alpha old beta', 18)
+            RETURNING id
+            """,
+            (document["id"],),
+        ).fetchone()
+        chunks = []
+        for rank, text in enumerate(["old alpha", "old beta"], start=1):
+            start = "old alpha old beta".index(text)
+            chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, %s, %s, %s, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-document-reprocess-no-duplicates')
+                RETURNING id
+                """,
+                (document["id"], page["id"], text, start, start + len(text), vector_literal([1.0, 0.0] + [0.0] * 1022)),
+            ).fetchone()
+            chunks.append((rank, chunk))
+        question = conn.execute(
+            "INSERT INTO questions (project_id, text, status) VALUES (%s, 'reprocess question', 'completed') RETURNING id",
+            (project["id"],),
+        ).fetchone()
+        old_match_ids = []
+        for rank, chunk in chunks:
+            match = conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, 0.88, %s, 'strong', 'old reprocess fixture', 'old', '', '')
+                RETURNING id
+                """,
+                (question["id"], chunk["id"], document["id"], rank),
+            ).fetchone()
+            old_match_ids.append(match["id"])
+        conn.execute("UPDATE projects SET updated_at = '2001-01-01 00:00:00+00' WHERE id = %s", (project["id"],))
+        conn.commit()
+
+    try:
+        reset_document_for_reprocess(document["id"])
+        require(storage_path.exists(), "document reprocess moved or deleted original uploaded PDF")
+        with connect() as conn:
+            saved_document = conn.execute("SELECT * FROM documents WHERE id = %s", (document["id"],)).fetchone()
+            page_count = conn.execute("SELECT COUNT(*) AS value FROM document_pages WHERE document_id = %s", (document["id"],)).fetchone()["value"]
+            chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (document["id"],)).fetchone()["value"]
+            match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE document_id = %s", (document["id"],)).fetchone()["value"]
+            old_match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE id = ANY(%s)", (old_match_ids,)).fetchone()["value"]
+            question_count = conn.execute("SELECT COUNT(*) AS value FROM questions WHERE id = %s", (question["id"],)).fetchone()["value"]
+            project_updated_at = conn.execute("SELECT updated_at FROM projects WHERE id = %s", (project["id"],)).fetchone()["updated_at"]
+        require(saved_document["status"] == "uploaded", "reprocess did not reset document status to uploaded")
+        require(saved_document["processing_stage"] == "uploaded", "reprocess did not reset processing_stage to uploaded")
+        require(saved_document["failure_code"] is None and saved_document["failure_reason"] is None and saved_document["failed_stage"] is None, "reprocess did not clear failure fields")
+        require(saved_document["searchable"] is False, "reprocess document must not remain searchable before new processing")
+        require(saved_document["page_count"] == 1 and saved_document["extractable_page_count"] == 1 and saved_document["chunk_count"] == 2, "reprocess did not preserve previous health counters before new processing")
+        require(page_count == 0, "reprocess left old document_pages")
+        require(chunk_count == 0, "reprocess left old chunks")
+        require(match_count == 0 and old_match_count == 0, "reprocess left old source matches")
+        require(question_count == 1, "reprocess removed question history")
+        require(str(project_updated_at) > "2001-01-01", "reprocess did not update project updated_at")
+    finally:
+        with connect() as conn:
+            conn.execute("DELETE FROM projects WHERE id = %s", (project["id"],))
+            conn.commit()
+        storage_path.unlink(missing_ok=True)
+
+
 def check_v020_source_detail_fields() -> None:
     from fastapi.testclient import TestClient
 
@@ -1577,6 +1670,7 @@ def main() -> None:
         "v020-project-hard-delete": check_v020_project_hard_delete,
         "v020-delete-consistency": check_v020_delete_consistency,
         "v020-delete-trash-cleanup": check_v020_delete_trash_cleanup,
+        "v020-document-reprocess-no-duplicates": check_v020_document_reprocess_no_duplicates,
         "v020-processing-failure-fields": check_v020_processing_failure_fields,
         "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,
