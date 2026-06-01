@@ -1420,6 +1420,192 @@ def check_question_embedding_failure_api() -> None:
         delete_project_records([project_id])
 
 
+def check_question_api() -> None:
+    from app import processing as processing_module
+
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"题目接口聚合-{suffix}")
+    original_embed_texts = processing_module.embed_texts
+
+    def fake_embed_texts(texts: list[str]) -> list[list[float]]:
+        embeddings: list[list[float]] = []
+        for text in texts:
+            normalized = text.strip().lower()
+            if "unmatched" in normalized:
+                embeddings.append([-1.0] + [0.0] * 1023)
+            elif "research target" in normalized:
+                embeddings.append([0.0, 1.0] + [0.0] * 1022)
+            else:
+                embeddings.append([1.0] + [0.0] * 1023)
+        return embeddings
+
+    try:
+        with connect() as conn:
+            primary_document = conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
+                )
+                VALUES (%s, 'question-api-primary.pdf', 'application/pdf', 'uploads/question-api-primary.pdf', 1, 1, 1, 'good', true, 'completed', 'completed')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            primary_page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, 'before answer alpha after', 'before answer alpha after', 25)
+                RETURNING id
+                """,
+                (primary_document["id"],),
+            ).fetchone()
+            primary_chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, 'answer alpha', 7, 19, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-question-api')
+                RETURNING id
+                """,
+                (primary_document["id"], primary_page["id"], vector_literal([1.0] + [0.0] * 1023)),
+            ).fetchone()
+
+            research_document = conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
+                )
+                VALUES (%s, 'question-api-research.pdf', 'application/pdf', 'uploads/question-api-research.pdf', 1, 1, 1, 'good', true, 'completed', 'completed')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            research_page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, 'before research beta after', 'before research beta after', 26)
+                RETURNING id
+                """,
+                (research_document["id"],),
+            ).fetchone()
+            research_chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, 'research beta', 7, 20, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-question-api')
+                RETURNING id
+                """,
+                (research_document["id"], research_page["id"], vector_literal([0.0, 1.0] + [0.0] * 1022)),
+            ).fetchone()
+
+            existing_question = conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'research target', 'completed', '2001-01-01 00:00:00+00', '2001-01-01 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            old_match = conn.execute(
+                """
+                INSERT INTO question_matches (
+                  question_id, chunk_id, document_id, page_no, score, rank,
+                  confidence_level, hit_reason, source_text, context_before, context_after
+                )
+                VALUES (%s, %s, %s, 1, 0.88, 1, 'strong', 'old question api fixture', 'answer alpha', 'before ', ' after')
+                RETURNING id
+                """,
+                (existing_question["id"], primary_chunk["id"], primary_document["id"]),
+            ).fetchone()
+            conn.commit()
+
+        processing_module.embed_texts = fake_embed_texts
+
+        empty = client.post(f"/projects/{project_id}/questions", json={"text": "   ", "document_ids": None})
+        require_status(empty, 400, "题目不能为空")
+
+        created = client.post(f"/projects/{project_id}/questions", json={"text": "  reliable question  ", "document_ids": None})
+        require_status(created, 200)
+        created_body = created.json()
+        require(set(created_body) == QUESTION_DETAIL_FIELDS, f"created question fields mismatch: {sorted(created_body)}")
+        require(created_body["project_id"] == project_id, "created question project_id mismatch")
+        require(created_body["text"] == "reliable question", "created question text was not trimmed")
+        require(created_body["status"] == "completed", "created question status mismatch")
+        require(created_body["failure_code"] is None, "created question failure_code must be null")
+        require(created_body["failure_reason"] is None, "created question failure_reason must be null")
+        require(created_body["last_search_at"] is not None, "created question last_search_at must be set")
+        require(len(created_body["matches"]) == 1, "created question match count mismatch")
+        created_match = created_body["matches"][0]
+        require(set(created_match) == QUESTION_MATCH_FIELDS, f"created question match fields mismatch: {sorted(created_match)}")
+        require(created_match["question_id"] == created_body["id"], "created match question_id mismatch")
+        require(created_match["document_id"] == primary_document["id"], "created match document_id mismatch")
+        require(created_match["document_filename"] == "question-api-primary.pdf", "created match document_filename mismatch")
+        require(created_match["page_no"] == 1, "created match page_no mismatch")
+        require(created_match["chunk_id"] == primary_chunk["id"], "created match chunk_id mismatch")
+        require(created_match["rank"] == 1, "created match rank mismatch")
+        require(created_match["confidence_level"] == "strong", "created match confidence_level mismatch")
+        require(created_match["confidence_label"] == "强相关", "created match confidence_label mismatch")
+        require(created_match["source_text"] == "answer alpha", "created match source_text mismatch")
+        require(created_match["context_before"] == "before ", "created match context_before mismatch")
+        require(created_match["context_after"] == " after", "created match context_after mismatch")
+        require(created_match["pdf_url"] == f"/documents/{primary_document['id']}/file#page=1", "created match pdf_url mismatch")
+        require("filename" not in created_match, "created match leaked legacy filename field")
+
+        unmatched = client.post(f"/projects/{project_id}/questions", json={"text": "unmatched question", "document_ids": None})
+        require_status(unmatched, 200)
+        unmatched_body = unmatched.json()
+        require(set(unmatched_body) == QUESTION_DETAIL_FIELDS, f"unmatched question fields mismatch: {sorted(unmatched_body)}")
+        require(unmatched_body["status"] == "no_reliable_source", "unmatched question status mismatch")
+        require(unmatched_body["failure_code"] is None, "unmatched failure_code must be null")
+        require(unmatched_body["failure_reason"] is None, "unmatched failure_reason must be null")
+        require(unmatched_body["matches"] == [], "unmatched matches must be empty")
+
+        researched = client.post(f"/questions/{existing_question['id']}/research", json={"document_ids": None})
+        require_status(researched, 200)
+        researched_body = researched.json()
+        require(set(researched_body) == QUESTION_DETAIL_FIELDS, f"researched question fields mismatch: {sorted(researched_body)}")
+        require(researched_body["id"] == existing_question["id"], "researched question id mismatch")
+        require(researched_body["status"] == "completed", "researched question status mismatch")
+        require(researched_body["failure_code"] is None, "researched failure_code must be null")
+        require(researched_body["failure_reason"] is None, "researched failure_reason must be null")
+        require(len(researched_body["matches"]) == 1, "researched match count mismatch")
+        researched_match = researched_body["matches"][0]
+        require(researched_match["document_id"] == research_document["id"], "researched match document_id mismatch")
+        require(researched_match["chunk_id"] == research_chunk["id"], "researched match chunk_id mismatch")
+        require(researched_match["source_text"] == "research beta", "researched match source_text mismatch")
+
+        history = client.get(f"/projects/{project_id}/questions")
+        require_status(history, 200)
+        history_rows = history.json()
+        require(len(history_rows) == 3, f"question api history length mismatch: {history_rows!r}")
+        require(all(set(row) == QUESTION_HISTORY_FIELDS for row in history_rows), "question api history fields mismatch")
+        statuses = {row["id"]: row["status"] for row in history_rows}
+        require(statuses[created_body["id"]] == "completed", "history created status mismatch")
+        require(statuses[unmatched_body["id"]] == "no_reliable_source", "history unmatched status mismatch")
+        require(statuses[existing_question["id"]] == "completed", "history researched status mismatch")
+
+        with connect() as conn:
+            old_match_count = conn.execute("SELECT COUNT(*) AS value FROM question_matches WHERE id = %s", (old_match["id"],)).fetchone()["value"]
+        require(old_match_count == 0, "question api research kept stale question_match")
+
+        processing_module.embed_texts = original_embed_texts
+        check_question_history_api()
+        check_question_detail_api()
+        check_question_research_scope_errors()
+        check_question_embedding_failure_api()
+    finally:
+        processing_module.embed_texts = original_embed_texts
+        delete_project_records([project_id])
+
+
 def check_stale_source() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -1521,6 +1707,7 @@ def main() -> None:
         "v020-question-detail-api": check_question_detail_api,
         "v020-question-research-scope-errors": check_question_research_scope_errors,
         "v020-question-embedding-failure-api": check_question_embedding_failure_api,
+        "v020-question-api": check_question_api,
         "v020-stale-source": check_stale_source,
     }
     if check not in checks:
