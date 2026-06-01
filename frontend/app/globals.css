@@ -181,3 +181,48 @@ textarea {
     border-bottom: 1px solid #d5dfd1;
   }
 }
+
+@media (max-width: 1023px) {
+  html,
+  body {
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .paper-shell {
+    position: fixed;
+    inset: 0;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .workspace-grid {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    grid-template-rows: 178px minmax(0, 1fr) 196px;
+  }
+
+  .workspace-sidebar,
+  .workspace-main,
+  .workspace-inspector {
+    height: auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .workspace-sidebar {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+
+  .workspace-main {
+    padding-top: 18px;
+    padding-bottom: 18px;
+  }
+
+  .workspace-inspector {
+    padding-top: 16px;
+    padding-bottom: 16px;
+  }
+}

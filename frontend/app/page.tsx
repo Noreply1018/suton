@@ -627,7 +627,11 @@ export default function Home() {
         className={`workspace-grid ${focusMode ? "workspace-grid-focus" : ""}`}
         data-testid="workspace-grid"
       >
-        <aside className={`paper-sidebar workspace-sidebar flex flex-col px-5 py-6 ${focusMode ? "hidden" : ""}`} data-testid="sidebar-nav">
+        <aside
+          className={`paper-sidebar workspace-sidebar flex flex-col px-5 py-6 ${focusMode ? "hidden" : ""}`}
+          data-testid="sidebar-nav"
+          data-v020-critical-region="project-sidebar"
+        >
           <div className="mb-7">
             <div className="mb-2 flex items-center gap-3">
               <div className="grid h-11 w-11 place-items-center rounded-md bg-[#d8eadb] text-[#204f3a] ring-1 ring-[#b5d1bd]">
@@ -690,7 +694,11 @@ export default function Home() {
           </div>
         </aside>
 
-        <section className="workspace-main min-w-0 px-8 py-7 max-md:px-5" data-testid="trace-workspace">
+        <section
+          className="workspace-main min-w-0 px-8 py-7 max-md:px-5"
+          data-testid="trace-workspace"
+          data-v020-critical-region="workspace-main"
+        >
           {focusMode && (
             <button
               type="button"
@@ -706,7 +714,11 @@ export default function Home() {
             <div className="min-w-0">
               <p className="mb-2 text-sm font-semibold text-[#496f45]">当前项目</p>
               <div className="flex min-w-0 items-center gap-2">
-                <h2 className="min-w-0 flex-1 break-words text-3xl font-semibold tracking-normal text-[#1f3428] max-md:text-2xl" data-testid="project-context-name">
+                <h2
+                  className="min-w-0 flex-1 break-words text-3xl font-semibold tracking-normal text-[#1f3428] max-md:text-2xl"
+                  data-testid="project-context-name"
+                  data-v020-check-overflow="true"
+                >
                   {activeProject?.name ?? "尚未创建项目"}
                 </h2>
                 {activeProject && (

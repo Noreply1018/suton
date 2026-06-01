@@ -298,6 +298,137 @@ async function workspaceBreakpointMetrics(page: Page) {
   });
 }
 
+type VisualHardError = {
+  viewport: string;
+  type: string;
+  label: string;
+  detail: string;
+};
+
+async function visualHardErrors(page: Page, viewport: string) {
+  return page.evaluate((viewportName) => {
+    const isVisible = (element: Element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+    };
+    const labelFor = (element: Element) =>
+      element.getAttribute("data-testid") ||
+      element.getAttribute("aria-label") ||
+      element.textContent?.trim().replace(/\s+/g, " ").slice(0, 80) ||
+      element.tagName.toLowerCase();
+    const rectArea = (rect: DOMRect) => Math.max(0, rect.width) * Math.max(0, rect.height);
+    const intersectionArea = (a: DOMRect, b: DOMRect) => {
+      const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+      const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      return width * height;
+    };
+    const errors: VisualHardError[] = [];
+    const horizontalOverflow = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+    const verticalOverflow = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+    if (horizontalOverflow > 1) {
+      errors.push({
+        viewport: viewportName,
+        type: "horizontal-scroll",
+        label: "documentElement",
+        detail: `${document.documentElement.scrollWidth} - ${document.documentElement.clientWidth} = ${horizontalOverflow}`
+      });
+    }
+    if (verticalOverflow > 1) {
+      errors.push({
+        viewport: viewportName,
+        type: "vertical-scroll",
+        label: "documentElement",
+        detail: `${document.documentElement.scrollHeight} - ${document.documentElement.clientHeight} = ${verticalOverflow}`
+      });
+    }
+
+    for (const element of Array.from(document.querySelectorAll("button, [role='button']"))) {
+      if (!isVisible(element)) continue;
+      const overflow = element.scrollWidth - element.clientWidth;
+      if (overflow > 1) {
+        errors.push({
+          viewport: viewportName,
+          type: "button-overflow",
+          label: labelFor(element),
+          detail: `${element.scrollWidth} - ${element.clientWidth} = ${overflow}`
+        });
+      }
+    }
+
+    const overflowTargets = Array.from(document.querySelectorAll('[data-v020-check-overflow="true"]')).filter(isVisible);
+    if (overflowTargets.length === 0) {
+      errors.push({
+        viewport: viewportName,
+        type: "missing-overflow-targets",
+        label: "data-v020-check-overflow",
+        detail: "no visible overflow targets"
+      });
+    }
+    for (const element of overflowTargets) {
+      if (!isVisible(element)) continue;
+      const horizontal = element.scrollWidth - element.clientWidth;
+      const vertical = element.scrollHeight - element.clientHeight;
+      if (horizontal > 1 || vertical > 1) {
+        errors.push({
+          viewport: viewportName,
+          type: "text-overflow",
+          label: labelFor(element),
+          detail: `horizontal=${horizontal}; vertical=${vertical}`
+        });
+      }
+    }
+
+    const regions = Array.from(document.querySelectorAll("[data-v020-critical-region]")).filter(isVisible);
+    if (regions.length < 2) {
+      errors.push({
+        viewport: viewportName,
+        type: "missing-critical-regions",
+        label: "data-v020-critical-region",
+        detail: `visible regions=${regions.length}`
+      });
+    }
+    for (let index = 0; index < regions.length; index += 1) {
+      for (let nextIndex = index + 1; nextIndex < regions.length; nextIndex += 1) {
+        const first = regions[index];
+        const second = regions[nextIndex];
+        const firstRect = first.getBoundingClientRect();
+        const secondRect = second.getBoundingClientRect();
+        const overlap = intersectionArea(firstRect, secondRect);
+        const smallerArea = Math.min(rectArea(firstRect), rectArea(secondRect));
+        if (smallerArea > 0 && overlap > smallerArea * 0.1) {
+          errors.push({
+            viewport: viewportName,
+            type: "critical-region-overlap",
+            label: `${labelFor(first)} / ${labelFor(second)}`,
+            detail: `overlap=${Math.round(overlap)}; smaller=${Math.round(smallerArea)}`
+          });
+        }
+      }
+    }
+
+    const main = document.querySelector("main");
+    if (!main || !isVisible(main)) {
+      errors.push({ viewport: viewportName, type: "blank-main", label: "main", detail: "main missing or invisible" });
+    } else {
+      const rect = main.getBoundingClientRect();
+      const visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
+      const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+      const visibleArea = visibleWidth * visibleHeight;
+      const viewportArea = window.innerWidth * window.innerHeight;
+      if (visibleArea < viewportArea * 0.35) {
+        errors.push({
+          viewport: viewportName,
+          type: "blank-main",
+          label: "main",
+          detail: `visible=${Math.round(visibleArea)}; viewport=${viewportArea}`
+        });
+      }
+    }
+    return errors;
+  }, viewport);
+}
+
 async function uploadMaterial(page: Page) {
   await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
   await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toBeVisible();
@@ -1177,6 +1308,30 @@ test("visual-workspace-breakpoints：生成桌面断点矩阵截图", async ({ p
         fullPage: true
       });
       expect(statSync(resolve(evidenceDir, `${viewport.width}x${viewport.height}-workspace-breakpoints.png`)).size).toBeGreaterThan(1000);
+    }
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("visual-hard-errors：固定 viewport 无布局硬错误", async ({ page }) => {
+  const seed = seedSourceReader();
+  const viewports = [
+    { width: 1440, height: 900 },
+    { width: 1280, height: 832 },
+    { width: 1200, height: 800 },
+    { width: 1024, height: 768 },
+    { width: 390, height: 844 }
+  ];
+  try {
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      await page.goto(`/?questionId=${seed.question_id}`);
+      await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+      await expect(page.getByTestId("app-shell")).toBeVisible();
+      const errors = await visualHardErrors(page, `${viewport.width}x${viewport.height}`);
+      expect(errors).toEqual([]);
     }
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
