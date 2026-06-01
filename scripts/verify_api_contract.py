@@ -42,6 +42,19 @@ DOCUMENT_FIELDS = {
     "processed_at",
     "updated_at",
 }
+QUESTION_HISTORY_FIELDS = {
+    "id",
+    "project_id",
+    "text",
+    "status",
+    "failure_code",
+    "failure_reason",
+    "last_search_at",
+    "updated_at",
+    "match_count",
+    "top_confidence_level",
+    "top_confidence_label",
+}
 
 
 def require(condition: bool, message: str) -> None:
@@ -627,6 +640,130 @@ def check_question_scope_errors() -> None:
         delete_project_records(project_ids)
 
 
+def check_question_history_api() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"题目历史接口-{suffix}")
+    other_project_id = create_project_record(f"题目历史隔离-{suffix}")
+    try:
+        with connect() as conn:
+            document = conn.execute(
+                """
+                INSERT INTO documents (
+                  project_id, filename, content_type, storage_path, page_count,
+                  extractable_page_count, chunk_count, text_quality, searchable,
+                  status, processing_stage
+                )
+                VALUES (%s, 'question-history.pdf', 'application/pdf', 'uploads/question-history.pdf', 1, 1, 2, 'good', true, 'completed', 'completed')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            page = conn.execute(
+                """
+                INSERT INTO document_pages (document_id, page_no, raw_text, normalized_text, char_count)
+                VALUES (%s, 1, 'alpha beta gamma', 'alpha beta gamma', 16)
+                RETURNING id
+                """,
+                (document["id"],),
+            ).fetchone()
+            chunk = conn.execute(
+                """
+                INSERT INTO chunks (
+                  document_id, page_id, page_no, text, page_start_char, page_end_char,
+                  embedding, embedding_provider, embedding_model, embedding_dimension, embedding_call
+                )
+                VALUES (%s, %s, 1, 'alpha', 0, 5, %s::vector, 'dashscope', 'text-embedding-v4', 1024, 'v020-question-history-api')
+                RETURNING id
+                """,
+                (document["id"], page["id"], vector_literal([1.0] + [0.0] * 1023)),
+            ).fetchone()
+            older_question = conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'older question', 'completed', '2001-01-01 00:00:00+00', '2001-01-01 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            newer_question = conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'newer question', 'completed', '2099-01-01 00:00:00+00', '2099-01-01 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            no_source_question = conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'no source question', 'no_reliable_source', '2005-01-01 00:00:00+00', '2005-01-01 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            failed_question = conn.execute(
+                """
+                INSERT INTO questions (
+                  project_id, text, status, failure_code, failure_reason, last_search_at, updated_at
+                )
+                VALUES (%s, 'failed question', 'failed', 'search_failed', '题目检索失败', '2004-01-01 00:00:00+00', '2004-01-01 00:00:00+00')
+                RETURNING id
+                """,
+                (project_id,),
+            ).fetchone()
+            conn.execute(
+                """
+                INSERT INTO questions (project_id, text, status, last_search_at, updated_at)
+                VALUES (%s, 'other project question', 'completed', '2100-01-01 00:00:00+00', '2100-01-01 00:00:00+00')
+                """,
+                (other_project_id,),
+            )
+            for question_id, score, rank, level in [
+                (older_question["id"], 0.88, 1, "strong"),
+                (newer_question["id"], 0.61, 1, "reference"),
+                (newer_question["id"], 0.44, 2, "low"),
+            ]:
+                conn.execute(
+                    """
+                    INSERT INTO question_matches (
+                      question_id, chunk_id, document_id, page_no, score, rank,
+                      confidence_level, hit_reason, source_text, context_before, context_after
+                    )
+                    VALUES (%s, %s, %s, 1, %s, %s, %s, 'history fixture', 'alpha', '', ' beta gamma')
+                    """,
+                    (question_id, chunk["id"], document["id"], score, rank, level),
+                )
+            conn.commit()
+
+        missing_project = client.get("/projects/999999999/questions")
+        require_status(missing_project, 404, "项目不存在")
+
+        history = client.get(f"/projects/{project_id}/questions")
+        require_status(history, 200)
+        rows = history.json()
+        require(len(rows) == 4, f"question history length mismatch: {rows!r}")
+        for row in rows:
+            require(set(row) == QUESTION_HISTORY_FIELDS, f"question history fields mismatch: {sorted(row)}")
+            require(row["project_id"] == project_id, "question history leaked another project")
+
+        require([row["id"] for row in rows] == [newer_question["id"], no_source_question["id"], failed_question["id"], older_question["id"]], "question history sort mismatch")
+        require(rows[0]["match_count"] == 2, "newer question match_count mismatch")
+        require(rows[0]["top_confidence_level"] == "reference", "newer question top confidence mismatch")
+        require(rows[0]["top_confidence_label"] == "可参考", "newer question top confidence label mismatch")
+        require(rows[1]["status"] == "no_reliable_source", "no-source question status mismatch")
+        require(rows[1]["match_count"] == 0, "no-source question match_count mismatch")
+        require(rows[1]["top_confidence_level"] is None, "no-source top confidence must be null")
+        require(rows[1]["top_confidence_label"] == "无可靠来源", "no-source top confidence label mismatch")
+        require(rows[2]["failure_code"] == "search_failed", "failed question failure_code mismatch")
+        require(rows[2]["failure_reason"] == "题目检索失败", "failed question failure_reason mismatch")
+        require(rows[3]["match_count"] == 1, "older question match_count mismatch")
+        require(rows[3]["top_confidence_level"] == "strong", "older question top confidence mismatch")
+        require(rows[3]["top_confidence_label"] == "强相关", "older question top confidence label mismatch")
+    finally:
+        delete_project_records([project_id, other_project_id])
+
+
 def check_stale_source() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -721,6 +858,7 @@ def main() -> None:
         "v020-document-scope-disabled": check_document_scope_disabled,
         "v020-project-name-limits": check_project_name_limits,
         "v020-question-scope-errors": check_question_scope_errors,
+        "v020-question-history-api": check_question_history_api,
         "v020-stale-source": check_stale_source,
     }
     if check not in checks:

@@ -370,6 +370,43 @@ def get_question(question_id: int) -> dict:
         return {"question": question, "matches": [match_response(row) for row in matches]}
 
 
+@app.get("/projects/{project_id}/questions")
+def list_questions(project_id: int) -> list[dict]:
+    with connect() as conn:
+        project = conn.execute("SELECT id FROM projects WHERE id = %s", (project_id,)).fetchone()
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+        rows = conn.execute(
+            """
+            SELECT
+              q.id,
+              q.project_id,
+              q.text,
+              q.status,
+              q.failure_code,
+              q.failure_reason,
+              q.last_search_at,
+              q.updated_at,
+              COUNT(qm.id)::int AS match_count,
+              top_match.confidence_level AS top_confidence_level
+            FROM questions q
+            LEFT JOIN question_matches qm ON qm.question_id = q.id
+            LEFT JOIN LATERAL (
+              SELECT confidence_level
+              FROM question_matches
+              WHERE question_id = q.id
+              ORDER BY rank
+              LIMIT 1
+            ) top_match ON true
+            WHERE q.project_id = %s
+            GROUP BY q.id, top_match.confidence_level
+            ORDER BY q.last_search_at DESC, q.id DESC
+            """,
+            (project_id,),
+        ).fetchall()
+    return [question_history_response(row) for row in rows]
+
+
 @app.get("/questions/{question_id}/matches/{match_id}")
 def get_question_match(question_id: int, match_id: int) -> dict:
     with connect() as conn:
@@ -475,4 +512,16 @@ def document_response(row: dict) -> dict:
 def match_response(row: dict) -> dict:
     result = dict(row)
     result["confidence_label"] = CONFIDENCE_LABELS[result["confidence_level"]]
+    return result
+
+
+def question_history_response(row: dict) -> dict:
+    result = dict(row)
+    level = result["top_confidence_level"]
+    if level:
+        result["top_confidence_label"] = CONFIDENCE_LABELS[level]
+    elif result["status"] == "no_reliable_source":
+        result["top_confidence_label"] = "无可靠来源"
+    else:
+        result["top_confidence_label"] = None
     return result

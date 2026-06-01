@@ -123,4 +123,5 @@ v020-api-test:
 	CHECK=v020-document-scope-disabled $(MAKE) verify-api-contract
 	CHECK=v020-project-name-limits $(MAKE) verify-api-contract
 	CHECK=v020-question-scope-errors $(MAKE) verify-api-contract
+	CHECK=v020-question-history-api $(MAKE) verify-api-contract
 	CHECK=v020-stale-source $(MAKE) verify-api-contract
