@@ -45,7 +45,7 @@
 |---|---|---|---|---|---|---|---|
 | 截图矩阵 | Node.js、pnpm、Playwright 浏览器、Linux、真实 Web、1440x900、1280x832、1200x800、1024x768、390x844 viewport | v0.2.0 UI 实现完成并准备固定 fixture 数据 | 执行 `make verify-visual CHECK=screenshot-matrix` | 所有主状态截图生成，且无布局硬错误 | 未验证 | 待补充 | 阻塞 |
 | 人工审美审计 | 截图证据、真实浏览器、审计记录模板、subagent 工具 | 截图矩阵已生成 | 派发 subagent 严格审计；执行 `make verify-visual CHECK=aesthetic-audit-record` | 审计结论为通过；若失败则修复后复审 | 未验证 | 待补充 | 阻塞 |
-| 旧设计清除 | Node.js、pnpm、本地源码、真实运行页面、Linux | v0.2.0 前端实现完成 | 执行 `make verify-visual CHECK=legacy-frontend-removed` | 旧前端布局和视觉语言不再参与运行路径，旧组件、旧样式和旧页面结构已删除 | 未验证 | 待补充 | 阻塞 |
+| 旧设计清除 | Node.js、pnpm、本地源码、真实运行页面、Linux | v0.2.0 前端实现完成 | 执行 `make verify-visual CHECK=legacy-frontend-removed` | 旧前端布局和视觉语言不再参与运行路径，旧组件、旧样式和旧页面结构已删除 | 已验证源码不包含旧演示文案和旧原型全局类；真实 Web 页面使用新工作台三分区运行路径，DOM 不包含旧原型类，并生成非空截图证据 | `frontend/e2e/v010.spec.ts`、`frontend/app/page.tsx`、`frontend/app/globals.css`、`tmp/v0.2.0-visual-evidence/1440x900-legacy-frontend-removed.png`、本地命令输出 | 通过 |
 | 视觉硬错误 | Node.js、pnpm、Playwright 浏览器、Linux、真实 Web、截图证据 | 截图矩阵已生成 | 执行 `make verify-visual CHECK=visual-hard-errors` | 无横向滚动、文本溢出、按钮溢出、关键区域重叠、空白主体或浏览器级无限纵向滚动 | 未验证 | 待补充 | 阻塞 |
 | 证据 manifest | Node.js、pnpm、Linux、本地证据文件 | 截图矩阵已生成 | 执行 `make verify-visual CHECK=visual-evidence-manifest` | `manifest.json` 包含每张截图的 URL、viewport、浏览器、Git commit、数据准备命令和截图时间 | 未验证 | 待补充 | 阻塞 |
 

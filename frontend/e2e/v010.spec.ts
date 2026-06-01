@@ -246,6 +246,57 @@ test("visual-legacy-copy-removed：旧演示文案不进入运行源码和真实
   }
 });
 
+test("visual-legacy-frontend-removed：旧前端结构和样式不进入运行路径", async ({ page }) => {
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  const screenshotPath = resolve(evidenceDir, "1440x900-legacy-frontend-removed.png");
+  const bannedCopies = ["v0.1.0", "演示项目", "默认项目", "Demo", "placeholder project", "高等数学（上）期末复习"];
+  const bannedLegacyClasses = [
+    "suton-mark",
+    "paper-grid",
+    "trace-canvas",
+    "trace-rings",
+    "trace-center",
+    "evidence-node",
+    "node-orbit",
+    "node-body",
+    "text-balance",
+    "line-clamp-2"
+  ];
+  const appSourceFiles = ["frontend/app/layout.tsx", "frontend/app/page.tsx", "frontend/app/globals.css"];
+
+  for (const filePath of appSourceFiles) {
+    const content = readFileSync(resolve(filePath), "utf-8");
+    for (const copy of bannedCopies) {
+      expect(content, `${filePath} should not contain old visible copy ${copy}`).not.toContain(copy);
+    }
+    for (const className of bannedLegacyClasses) {
+      expect(content, `${filePath} should not contain old frontend class ${className}`).not.toContain(className);
+    }
+  }
+
+  const projectsResponse = page.waitForResponse(
+    (response) => response.url().endsWith("/projects") && response.request().method() === "GET"
+  );
+  await page.goto("/");
+  expect((await projectsResponse).status()).toBe(200);
+
+  await expect(page).toHaveTitle("Suton");
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByTestId("sidebar-nav")).toBeVisible();
+  await expect(page.getByTestId("trace-workspace")).toBeVisible();
+  await expect(page.getByTestId("evidence-preview")).toBeVisible();
+  await expect(page.locator(".suton-mark, .paper-grid, .trace-canvas, .trace-rings, .trace-center, .evidence-node, .node-orbit, .node-body")).toHaveCount(0);
+
+  const visibleText = await page.locator("body").innerText();
+  for (const copy of bannedCopies) {
+    expect(visibleText).not.toContain(copy);
+  }
+
+  mkdirSync(evidenceDir, { recursive: true });
+  await page.screenshot({ path: screenshotPath, fullPage: true });
+  expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+});
+
 test("v020-project-create：新建项目不使用演示默认名", async ({ page }) => {
   await page.goto("/");
   const name = `线性代数期末 ${Date.now()}`;

@@ -105,7 +105,7 @@ verify-visual:
 ifeq ($(CHECK),design-tokens)
 	uv run --project backend python scripts/verify_design_tokens.py
 else
-	@if [[ "$$CHECK" != "source-page-nav" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "mobile-workspace" ]]; then \
+	@if [[ "$$CHECK" != "source-page-nav" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "legacy-frontend-removed" && "$$CHECK" != "mobile-workspace" ]]; then \
 		echo "unsupported visual CHECK: $$CHECK"; exit 2; \
 	fi
 	uv run --project backend python scripts/dev_check.py --skip-embedding
@@ -120,7 +120,7 @@ else
 	 cleanup() { kill -TERM -- -$$worker_pid -$$api_pid -$$web_pid 2>/dev/null || true; wait $$worker_pid $$api_pid $$web_pid 2>/dev/null || true; }; \
 	 trap cleanup INT TERM EXIT; \
 	 uv run --project backend python scripts/wait_http.py "$$api_url/health" "$$web_url" && \
-	 if [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; elif [[ "$$CHECK" == "first-empty-project" ]]; then visual_grep="visual-first-empty-project"; elif [[ "$$CHECK" == "legacy-copy-removed" ]]; then visual_grep="visual-legacy-copy-removed"; else visual_grep="visual-mobile-workspace"; fi; \
+	 if [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; elif [[ "$$CHECK" == "first-empty-project" ]]; then visual_grep="visual-first-empty-project"; elif [[ "$$CHECK" == "legacy-copy-removed" ]]; then visual_grep="visual-legacy-copy-removed"; elif [[ "$$CHECK" == "legacy-frontend-removed" ]]; then visual_grep="visual-legacy-frontend-removed"; else visual_grep="visual-mobile-workspace"; fi; \
 	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test --grep "$$visual_grep"; status=$$?; cleanup; exit $$status)
 endif
 
