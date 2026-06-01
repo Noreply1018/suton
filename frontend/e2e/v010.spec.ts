@@ -58,6 +58,12 @@ type ProcessingFailureSeed = {
   delete_document_id: number;
 };
 
+type ProcessingPollingSeed = {
+  project_id: number;
+  project_name: string;
+  document_ids: number[];
+};
+
 async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByRole("button", { name: "新建项目" }).click();
@@ -133,6 +139,15 @@ function seedProcessingFailure() {
     encoding: "utf-8"
   }).trim();
   return JSON.parse(output) as ProcessingFailureSeed;
+}
+
+function seedProcessingPolling() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_processing_polling.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as ProcessingPollingSeed;
 }
 
 async function expectDetailItem(page: Page, testId: string, label: string, value: string) {
@@ -540,6 +555,40 @@ test("v020-processing-refresh：刷新后从后端恢复处理失败状态", asy
     await expect(failureActions.getByRole("button", { name: "重新处理" })).toBeVisible();
     await expect(failureActions.getByRole("button", { name: "删除资料" })).toBeVisible();
     await expect(failureActions.getByRole("button", { name: "查看失败原因" })).toBeVisible();
+  } finally {
+    const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+    expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("v020-processing-polling-coalesced：处理中资料共用项目资料列表轮询", async ({ page }) => {
+  const seed = seedProcessingPolling();
+  const documentDetailPattern = new RegExp(`/documents/(${seed.document_ids.join("|")})$`);
+  let projectDocumentListRequests = 0;
+  let perDocumentDetailRequests = 0;
+  try {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+    for (const documentId of seed.document_ids) {
+      const row = page.getByTestId(`document-row-${documentId}`);
+      await expect(row).toContainText("处理中");
+      await expect(row.getByTestId("processing-stage-node-embedding")).toContainText("生成 embedding");
+    }
+
+    page.on("request", (request) => {
+      const url = request.url();
+      if (request.method() !== "GET") return;
+      if (url.endsWith(`/projects/${seed.project_id}/documents`)) {
+        projectDocumentListRequests += 1;
+      }
+      if (documentDetailPattern.test(new URL(url).pathname)) {
+        perDocumentDetailRequests += 1;
+      }
+    });
+
+    await page.waitForTimeout(3300);
+    expect(projectDocumentListRequests).toBeGreaterThanOrEqual(2);
+    expect(perDocumentDetailRequests).toBe(0);
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());

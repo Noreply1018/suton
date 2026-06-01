@@ -198,7 +198,7 @@ export default function Home() {
     if (!activeProjectId) return;
     const timer = window.setInterval(() => {
       refresh(activeProjectId).catch(() => undefined);
-    }, 5000);
+    }, 1500);
     return () => window.clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProjectId]);
