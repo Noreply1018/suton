@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -147,19 +148,62 @@ def upload_document(project_id: int, file: UploadFile = File(...)) -> dict:
 
 
 @app.post("/projects/{project_id}/questions")
-def create_question(project_id: int, payload: dict[str, str]) -> dict:
+def create_question(project_id: int, payload: dict[str, Any]) -> dict:
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="题目不能为空")
-    with connect() as conn:
-        completed_count = conn.execute(
-            "SELECT COUNT(*) AS count FROM documents WHERE project_id = %s AND status = 'completed'",
-            (project_id,),
-        ).fetchone()["count"]
-    if completed_count == 0:
-        raise HTTPException(status_code=409, detail="需先上传并处理资料")
-    question_id = search_question(project_id, text)
+    document_ids = validate_question_document_scope(project_id, payload.get("document_ids"))
+    question_id = search_question(project_id, text, document_ids)
     return get_question(question_id)
+
+
+def validate_question_document_scope(project_id: int, raw_document_ids: Any) -> list[int] | None:
+    with connect() as conn:
+        project = conn.execute("SELECT id FROM projects WHERE id = %s", (project_id,)).fetchone()
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+
+        if raw_document_ids is None:
+            searchable_count = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM documents
+                WHERE project_id = %s
+                  AND status = 'completed'
+                  AND searchable = true
+                """,
+                (project_id,),
+            ).fetchone()["count"]
+            if searchable_count == 0:
+                raise HTTPException(status_code=409, detail="需先上传并处理资料")
+            return None
+
+        if not isinstance(raw_document_ids, list):
+            raise HTTPException(status_code=400, detail="检索范围包含不可用资料")
+        if not raw_document_ids:
+            raise HTTPException(status_code=400, detail="检索范围不能为空")
+
+        document_ids: list[int] = []
+        for value in raw_document_ids:
+            if not isinstance(value, int):
+                raise HTTPException(status_code=400, detail="检索范围包含不可用资料")
+            if value not in document_ids:
+                document_ids.append(value)
+
+        valid_count = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM documents
+            WHERE project_id = %s
+              AND id = ANY(%s)
+              AND status = 'completed'
+              AND searchable = true
+            """,
+            (project_id, document_ids),
+        ).fetchone()["count"]
+    if valid_count != len(document_ids):
+        raise HTTPException(status_code=400, detail="检索范围包含不可用资料")
+    return document_ids
 
 
 @app.get("/questions/{question_id}")

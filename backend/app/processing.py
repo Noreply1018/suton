@@ -228,7 +228,7 @@ def create_uploaded_document(project_id: int, filename: str, content_type: str, 
         return row["id"]
 
 
-def search_question(project_id: int, text: str) -> int:
+def search_question(project_id: int, text: str, document_ids: list[int] | None = None) -> int:
     query_embedding = embed_texts([text])[0]
     with connect() as conn:
         question = conn.execute(
@@ -240,8 +240,14 @@ def search_question(project_id: int, text: str) -> int:
             (project_id, text),
         ).fetchone()
         question_id = question["id"]
+        scope_filter = ""
+        params: list[object] = [vector_literal(query_embedding), project_id]
+        if document_ids is not None:
+            scope_filter = "AND d.id = ANY(%s)"
+            params.append(document_ids)
+        params.append(vector_literal(query_embedding))
         rows = conn.execute(
-            """
+            f"""
             SELECT
               c.id AS chunk_id,
               c.document_id,
@@ -257,12 +263,13 @@ def search_question(project_id: int, text: str) -> int:
             WHERE d.project_id = %s
               AND d.status = 'completed'
               AND d.searchable = true
+              {scope_filter}
               AND c.text IS NOT NULL
               AND c.page_no IS NOT NULL
             ORDER BY c.embedding <=> %s::vector
             LIMIT 5
             """,
-            (vector_literal(query_embedding), project_id, vector_literal(query_embedding)),
+            params,
         ).fetchall()
         rows = [row for row in rows if float(row["score"]) >= MIN_MATCH_SCORE]
         for row in rows:

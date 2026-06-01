@@ -459,6 +459,110 @@ def check_document_detail_fields() -> None:
         delete_project_records([project_id])
 
 
+def check_question_scope_errors() -> None:
+    client = TestClient(app)
+    suffix = time.time_ns()
+    project_id = create_project_record(f"题目范围错误-{suffix}")
+    other_project_id = create_project_record(f"题目范围跨项目-{suffix}")
+    no_searchable_project_id: int | None = None
+    try:
+        searchable_id = create_document_record(
+            project_id,
+            filename="searchable-scope.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        processing_id = create_document_record(
+            project_id,
+            filename="processing-scope.pdf",
+            status="processing",
+            processing_stage="embedding",
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        unsearchable_id = create_document_record(
+            project_id,
+            filename="unsearchable-scope.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        other_document_id = create_document_record(
+            other_project_id,
+            filename="other-project-scope.pdf",
+            status="completed",
+            processing_stage="completed",
+            searchable=True,
+            chunk_count=1,
+            text_quality="good",
+        )
+        empty_scope = client.post(
+            f"/projects/{project_id}/questions",
+            json={"text": "题目范围为空", "document_ids": []},
+        )
+        require_status(empty_scope, 400, "检索范围不能为空")
+
+        cross_project = client.post(
+            f"/projects/{project_id}/questions",
+            json={"text": "题目范围跨项目", "document_ids": [other_document_id]},
+        )
+        require_status(cross_project, 400, "检索范围包含不可用资料")
+
+        processing_scope = client.post(
+            f"/projects/{project_id}/questions",
+            json={"text": "题目范围包含处理中资料", "document_ids": [processing_id]},
+        )
+        require_status(processing_scope, 400, "检索范围包含不可用资料")
+
+        unsearchable_scope = client.post(
+            f"/projects/{project_id}/questions",
+            json={"text": "题目范围包含不可检索资料", "document_ids": [unsearchable_id]},
+        )
+        require_status(unsearchable_scope, 400, "检索范围包含不可用资料")
+
+        mixed_scope = client.post(
+            f"/projects/{project_id}/questions",
+            json={"text": "题目范围混合资料", "document_ids": [searchable_id, unsearchable_id]},
+        )
+        require_status(mixed_scope, 400, "检索范围包含不可用资料")
+
+        no_searchable_project_id = create_project_record(f"题目范围无可检索-{suffix}")
+        create_document_record(
+            no_searchable_project_id,
+            filename="no-searchable-scope.pdf",
+            status="failed",
+            processing_stage="failed",
+            failed_stage="embedding",
+            failure_code="embedding_failed",
+            failure_reason="生成 embedding 失败",
+            searchable=False,
+            chunk_count=0,
+            text_quality="unsearchable",
+        )
+        no_searchable = client.post(
+            f"/projects/{no_searchable_project_id}/questions",
+            json={"text": "没有可检索资料", "document_ids": None},
+        )
+        require_status(no_searchable, 409, "需先上传并处理资料")
+
+        missing_project = client.post(
+            "/projects/999999999/questions",
+            json={"text": "项目不存在", "document_ids": None},
+        )
+        require_status(missing_project, 404, "项目不存在")
+    finally:
+        project_ids = [project_id, other_project_id]
+        if no_searchable_project_id is not None:
+            project_ids.append(no_searchable_project_id)
+        delete_project_records(project_ids)
+
+
 def check_stale_source() -> None:
     client = TestClient(app)
     suffix = time.time_ns()
@@ -551,6 +655,7 @@ def main() -> None:
         "v020-project-document-api": check_project_document_api,
         "v020-document-detail-fields": check_document_detail_fields,
         "v020-project-name-limits": check_project_name_limits,
+        "v020-question-scope-errors": check_question_scope_errors,
         "v020-stale-source": check_stale_source,
     }
     if check not in checks:
