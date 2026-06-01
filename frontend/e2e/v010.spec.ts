@@ -93,6 +93,15 @@ function seedSourceFileMissing() {
   return JSON.parse(output) as SourceReaderSeed;
 }
 
+function seedStaleSource() {
+  const output = execFileSync("uv", ["run", "--project", "backend", "python", "scripts/seed_stale_source.py"], {
+    cwd: resolve("."),
+    env: { ...process.env, PYTHONPATH: "backend" },
+    encoding: "utf-8"
+  }).trim();
+  return JSON.parse(output) as SourceReaderSeed;
+}
+
 async function expectDetailItem(page: Page, testId: string, label: string, value: string) {
   const item = page.getByTestId(`document-detail-${testId}`);
   await expect(item).toContainText(label);
@@ -444,6 +453,31 @@ test("v020-source-reader-file-missing：PDF 文件缺失展示固定错误状态
   const fileResponse = await page.request.get(`${apiUrl}/documents/${seed.document_id}/file`);
   expect(fileResponse.status()).toBe(404);
   expect(await fileResponse.json()).toEqual({ detail: "资料文件不存在" });
+});
+
+test("v020-source-reader-stale-source：来源详情失效展示固定错误状态", async ({ page }) => {
+  const seed = seedStaleSource();
+  await page.goto(`/?questionId=${seed.question_id}`);
+  await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
+  await expect(page.getByTestId("source-card").first()).toContainText("stale-source.pdf 第 1 页");
+  await expect(page.getByTestId("source-card").first()).toContainText("stale source hit");
+
+  await page.getByTestId("source-card").first().getByRole("button", { name: /stale-source\.pdf/ }).click();
+
+  const errorState = page.getByTestId("source-reader-error");
+  await expect(errorState).toBeVisible();
+  await expect(errorState).toContainText("来源已失效");
+  await expect(errorState).toContainText("该来源已被删除或重新处理。");
+  await expect(errorState).not.toContainText("stale source hit");
+  await expect(page.getByTestId("source-reader")).toHaveCount(0);
+  await expect(page.getByTestId("source-reader-pdf")).toHaveCount(0);
+
+  const staleResponse = await page.request.get(`${apiUrl}/questions/${seed.question_id}/matches/${seed.match_id}`);
+  expect(staleResponse.status()).toBe(404);
+  expect(await staleResponse.json()).toEqual({ detail: "来源已失效" });
+
+  const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
+  expect(deleteResponse.status()).toBe(200);
 });
 
 test("question-input：无资料时提交题目被拦截", async ({ page }) => {
