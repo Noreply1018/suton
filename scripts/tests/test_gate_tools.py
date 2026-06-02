@@ -141,3 +141,10 @@ def test_dashscope_missing_key_messages_are_version_neutral() -> None:
     assert "v0.1.0 embedding 链路" not in source
     assert "缺少 DASHSCOPE_API_KEY，无法生成 Suton 要求的 DashScope embedding" in source
     assert "缺少 DASHSCOPE_API_KEY，无法满足 Suton DashScope embedding 链路" in source
+
+
+def test_runtime_diagnostics_cli_description_is_version_neutral() -> None:
+    doctor_source = (ROOT / "scripts/doctor.py").read_text(encoding="utf-8")
+
+    assert "Suton v0.1.0 local runtime diagnostics" not in doctor_source
+    assert "Suton local runtime diagnostics" in doctor_source

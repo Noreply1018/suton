@@ -123,7 +123,7 @@ def run_checks(checks: list[Check]) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Suton v0.1.0 local runtime diagnostics")
+    parser = argparse.ArgumentParser(description="Suton local runtime diagnostics")
     parser.add_argument("--preflight", action="store_true", help="只检查启动前必须满足的条件")
     args = parser.parse_args()
 
