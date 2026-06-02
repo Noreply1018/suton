@@ -127,7 +127,7 @@ def process_document(document_id: int) -> None:
                     (total_page_count, document_id),
                 )
                 conn.commit()
-            mark_document_failed(document_id, "PDF 无可提取文字层，v0.1.0 不进入 OCR", status="unsupported")
+            mark_document_failed(document_id, DOCUMENT_FAILURE_REASONS["no_text_layer"], status="unsupported")
             return
         with connect() as conn:
             with conn.transaction():

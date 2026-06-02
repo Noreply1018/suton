@@ -121,3 +121,9 @@ def test_v020_target_inventory_rejects_dashscope_scenario_in_skip_embedding(monk
     readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
     errors = check_v020_target_inventory(readme)
     assert any("SCENARIO=v020-full-regression" in error and "--skip-embedding" in error for error in errors)
+
+
+def test_processing_no_text_layer_reason_uses_v020_contract() -> None:
+    processing_source = (ROOT / "backend/app/processing.py").read_text(encoding="utf-8")
+    assert "v0.1.0 不进入 OCR" not in processing_source
+    assert "PDF 无可提取文字层，v0.2.0 不进入 OCR" in processing_source
