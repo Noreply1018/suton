@@ -1575,6 +1575,7 @@ function DocumentDetail({
   onReprocess: (document: DocumentRow) => void;
 }) {
   const failed = isFailedDocument(document);
+  const reprocessable = ["completed", "failed", "unsupported"].includes(document.status);
   return (
     <section className="mt-5 border-t border-[#dce4d7] pt-5" data-testid="document-detail">
       <div className="mb-4 flex items-center justify-between gap-4">
@@ -1582,8 +1583,8 @@ function DocumentDetail({
           <FileText size={18} strokeWidth={1.75} />
           <h4 className="text-base font-semibold">资料详情</h4>
         </div>
-        {failed && (
-          <div className="flex shrink-0 flex-wrap justify-end gap-2" data-testid="document-detail-failure-actions">
+        {reprocessable && (
+          <div className="flex shrink-0 flex-wrap justify-end gap-2" data-testid="document-detail-actions">
             <Button
               type="button"
               disabled={busy}
