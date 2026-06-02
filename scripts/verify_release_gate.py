@@ -334,7 +334,7 @@ def main() -> None:
         fail("\n".join(v020_errors))
 
     print("v0.1.0 release gate spec checks passed")
-    print("v0.2.0 draft spec structure checks passed")
+    print("v0.2.0 draft spec structure, target inventory, and DashScope skip allowlist checks passed")
 
 
 if __name__ == "__main__":

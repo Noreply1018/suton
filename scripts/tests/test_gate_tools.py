@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from scripts import verify_release_gate  # noqa: E402
 from scripts.collect_evidence import redact, render_command, visual_evidence_summary  # noqa: E402
 from scripts.scan_secrets import scan_text  # noqa: E402
 from scripts.verify_release_gate import check_v020_target_inventory  # noqa: E402
@@ -28,6 +29,7 @@ def test_release_gate_script_passes() -> None:
     result = run_script("verify_release_gate.py")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "release gate spec checks passed" in result.stdout
+    assert "target inventory, and DashScope skip allowlist checks passed" in result.stdout
 
 
 def test_secret_scan_passes() -> None:
@@ -103,3 +105,19 @@ def test_v020_target_inventory_rejects_undocumented_supported_target() -> None:
     errors = check_v020_target_inventory(readme)
     assert errors
     assert any("当前源码支持 `make verify-db CHECK=v020-schema`" in error for error in errors)
+
+
+def test_v020_target_inventory_rejects_dashscope_scenario_in_skip_embedding(monkeypatch, tmp_path: Path) -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    makefile = makefile.replace(
+        "v020-focus-mode-restore)$$",
+        "v020-focus-mode-restore|v020-full-regression)$$",
+        1,
+    )
+    patched_makefile = tmp_path / "Makefile"
+    patched_makefile.write_text(makefile, encoding="utf-8")
+    monkeypatch.setattr(verify_release_gate, "MAKEFILE", patched_makefile)
+
+    readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
+    errors = check_v020_target_inventory(readme)
+    assert any("SCENARIO=v020-full-regression" in error and "--skip-embedding" in error for error in errors)
