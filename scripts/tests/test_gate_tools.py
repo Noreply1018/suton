@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.collect_evidence import redact, render_command, visual_evidence_summary  # noqa: E402
 from scripts.scan_secrets import scan_text  # noqa: E402
+from scripts.verify_release_gate import check_v020_target_inventory  # noqa: E402
 
 
 def run_script(name: str) -> subprocess.CompletedProcess[str]:
@@ -82,3 +83,23 @@ def test_collect_evidence_visual_summary_is_redaction_safe() -> None:
     summary = "\n".join(visual_evidence_summary())
     assert "tmp/v0.2.0-visual-evidence" in summary
     assert "sk-" not in summary
+
+
+def test_v020_target_inventory_matches_current_sources() -> None:
+    readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
+    assert check_v020_target_inventory(readme) == []
+
+
+def test_v020_target_inventory_rejects_documented_missing_target() -> None:
+    readme = "当前仓库已实现 `make verify-e2e SCENARIO=v020-not-real`。"
+    errors = check_v020_target_inventory(readme)
+    assert errors
+    assert any("v020-not-real" in error for error in errors)
+
+
+def test_v020_target_inventory_rejects_undocumented_supported_target() -> None:
+    readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
+    readme = readme.replace("`make verify-db CHECK=v020-schema`、", "", 1)
+    errors = check_v020_target_inventory(readme)
+    assert errors
+    assert any("当前源码支持 `make verify-db CHECK=v020-schema`" in error for error in errors)

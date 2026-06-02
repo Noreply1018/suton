@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -10,6 +11,11 @@ ITEMS_DIR = SPEC_DIR / "items"
 VALIDATION_DOC = SPEC_DIR / "validation-2026-05-29.md"
 V020_SPEC_DIR = ROOT / "docs/spec/v0.2.0"
 V020_ITEMS_DIR = V020_SPEC_DIR / "items"
+MAKEFILE = ROOT / "Makefile"
+V020_E2E_SPEC = ROOT / "frontend/e2e/v010.spec.ts"
+VERIFY_DB = ROOT / "scripts/verify_db.py"
+VERIFY_API_CONTRACT = ROOT / "scripts/verify_api_contract.py"
+VERIFY_VISUAL_GATE = ROOT / "scripts/verify_visual_gate.py"
 
 
 def fail(message: str) -> None:
@@ -133,6 +139,116 @@ def check_v020_item(path: Path) -> list[str]:
     return errors
 
 
+def extract_python_mapping_keys(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key in node.keys:
+            if isinstance(key, ast.Constant) and isinstance(key.value, str) and key.value.startswith("v020-"):
+                keys.add(key.value)
+    return keys
+
+
+def extract_makefile_visual_checks() -> set[str]:
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    checks = set(re.findall(r"(?:else )?ifeq \(\$\(CHECK\),([a-z0-9-]+)\)", makefile))
+    checks.update(re.findall(r'\$\$CHECK" != "([a-z0-9-]+)"', makefile))
+    return checks
+
+
+def extract_makefile_e2e_skip_embedding_scenarios() -> set[str]:
+    makefile = MAKEFILE.read_text(encoding="utf-8")
+    match = re.search(r'if \[\[ "\$\$SCENARIO" =~ \^\(([^)]*)\)\$\$ \]\]', makefile)
+    if not match:
+        return set()
+    return {scenario for scenario in match.group(1).split("|") if scenario}
+
+
+def extract_playwright_targets() -> tuple[set[str], set[str]]:
+    text = V020_E2E_SPEC.read_text(encoding="utf-8")
+    titles = re.findall(r'test\("([^"]+)"', text)
+    e2e: set[str] = set()
+    visual: set[str] = set()
+    for title in titles:
+        e2e.update(re.findall(r"\b(v020-[a-z0-9-]+)\b", title))
+        if title.startswith("visual-"):
+            visual_target = title.split("：", 1)[0].split(":", 1)[0]
+            visual.add(visual_target)
+            visual.add(visual_target.removeprefix("visual-"))
+    return e2e, visual
+
+
+def extract_verify_visual_gate_checks() -> set[str]:
+    text = VERIFY_VISUAL_GATE.read_text(encoding="utf-8")
+    return set(re.findall(r'check == "([a-z0-9-]+)"', text))
+
+
+def extract_current_readme_implemented_targets(readme: str) -> dict[str, set[str]]:
+    paragraphs = [paragraph.strip() for paragraph in readme.split("\n\n")]
+    target_paragraphs = [
+        paragraph
+        for paragraph in paragraphs
+        if paragraph.startswith("当前仓库已实现") or paragraph.startswith("近期新增已实现")
+    ]
+    targets = {"db": set(), "api": set(), "e2e": set(), "visual": set()}
+    for paragraph in target_paragraphs:
+        targets["db"].update(re.findall(r"make verify-db CHECK=([a-z0-9-]+)", paragraph))
+        targets["api"].update(re.findall(r"make verify-api-contract CHECK=([a-z0-9-]+)", paragraph))
+        targets["e2e"].update(re.findall(r"make verify-e2e SCENARIO=([a-z0-9-]+)", paragraph))
+        targets["visual"].update(re.findall(r"make verify-visual CHECK=([a-z0-9-]+)", paragraph))
+    return targets
+
+
+def check_v020_target_inventory(readme: str) -> list[str]:
+    errors: list[str] = []
+    documented = extract_current_readme_implemented_targets(readme)
+    supported_db = extract_python_mapping_keys(VERIFY_DB)
+    supported_api = extract_python_mapping_keys(VERIFY_API_CONTRACT)
+    supported_e2e, playwright_visual = extract_playwright_targets()
+    supported_visual = extract_makefile_visual_checks()
+    supported_visual.update(extract_verify_visual_gate_checks())
+
+    checks = [
+        ("make verify-db", "CHECK", documented["db"], supported_db),
+        ("make verify-api-contract", "CHECK", documented["api"], supported_api),
+        ("make verify-e2e", "SCENARIO", documented["e2e"], supported_e2e),
+        ("make verify-visual", "CHECK", documented["visual"], supported_visual),
+    ]
+    for command, variable, declared, supported in checks:
+        missing = sorted(declared - supported)
+        for target in missing:
+            errors.append(f"{V020_SPEC_DIR / 'README.md'}: 已实现清单声明 `{command} {variable}={target}`，但当前源码未支持该 target")
+        undocumented = sorted(supported - declared)
+        for target in undocumented:
+            errors.append(f"{V020_SPEC_DIR / 'README.md'}: 当前源码支持 `{command} {variable}={target}`，但已实现清单未声明该 target")
+
+    visual_without_tests = sorted(
+        documented["visual"]
+        - playwright_visual
+        - extract_verify_visual_gate_checks()
+        - {"design-tokens", "visual-system"}
+    )
+    for target in visual_without_tests:
+        errors.append(f"{V020_SPEC_DIR / 'README.md'}: 已实现清单声明 `make verify-visual CHECK={target}`，但缺少对应 `visual-{target}` Playwright 场景")
+
+    e2e_skip_embedding = extract_makefile_e2e_skip_embedding_scenarios()
+    dashscope_required = {
+        "v020-document-reprocess",
+        "v020-document-scope-search",
+        "v020-question-search",
+        "v020-question-no-source",
+        "v020-processing-progress",
+        "v020-core-loop",
+        "v020-full-regression",
+    }
+    forbidden_skip = sorted(dashscope_required & e2e_skip_embedding)
+    for scenario in forbidden_skip:
+        errors.append(f"{MAKEFILE}: `SCENARIO={scenario}` 需要真实 DashScope 成功路径，不得进入 --skip-embedding 白名单")
+    return errors
+
+
 def check_v020_spec() -> list[str]:
     errors: list[str] = []
     required_files = [
@@ -168,6 +284,7 @@ def check_v020_spec() -> list[str]:
     for required in required_readme_text:
         if required not in readme:
             errors.append(f"{V020_SPEC_DIR / 'README.md'}: 缺少关键约束 {required}")
+    errors.extend(check_v020_target_inventory(readme))
 
     for path in sorted(V020_ITEMS_DIR.glob("*.md")):
         errors.extend(check_v020_item(path))
