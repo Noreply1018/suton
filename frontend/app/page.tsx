@@ -275,12 +275,19 @@ export default function Home() {
   }
 
   useEffect(() => {
-    refresh().catch((err: Error) => setError(err.message));
     const questionId = new URLSearchParams(window.location.search).get("questionId");
     if (questionId) {
       request<QuestionResult>(`/questions/${questionId}`)
-        .then(setResult)
+        .then(async (detail) => {
+          setResult(detail);
+          setQuestion(detail.text);
+          activeProjectIdRef.current = detail.project_id;
+          setActiveProjectId(detail.project_id);
+          await refresh(detail.project_id);
+        })
         .catch((err: Error) => setError(err.message));
+    } else {
+      refresh().catch((err: Error) => setError(err.message));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

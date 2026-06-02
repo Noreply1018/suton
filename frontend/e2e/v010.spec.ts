@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 test.describe.configure({ mode: "serial" });
@@ -107,6 +107,43 @@ type LongListsSeed = {
   question_ids: number[];
 };
 
+type VisualEvidenceRecord = {
+  state: string;
+  viewport: string;
+  path: string;
+  url: string;
+  browser: string;
+  data_command: string;
+  captured_at: string;
+};
+
+const visualMatrixViewports = [
+  { width: 1440, height: 900 },
+  { width: 1280, height: 832 },
+  { width: 1200, height: 800 },
+  { width: 1024, height: 768 },
+  { width: 390, height: 844 }
+];
+
+const visualMatrixStates = [
+  "first-empty-project",
+  "project-created",
+  "document-list",
+  "document-health",
+  "paper-ingest-uploading",
+  "processing-rail-running",
+  "processing-failure-actions",
+  "question-search",
+  "source-confidence-levels",
+  "no-reliable-source",
+  "focus-mode",
+  "source-detail",
+  "source-page-nav",
+  "pdf-reader",
+  "long-lists",
+  "mobile-workspace"
+] as const;
+
 async function createProject(page: Page, prefix: string) {
   const name = `${prefix} ${Date.now()}`;
   await page.getByRole("button", { name: "新建项目" }).click();
@@ -123,6 +160,11 @@ async function projectIdByName(page: Page, name: string) {
   const project = projects.find((item) => item.name === name);
   if (!project) throw new Error(`project not found: ${name}`);
   return project.id;
+}
+
+async function openQuestionProject(page: Page, questionId: number, projectName: string) {
+  await page.goto(`/?questionId=${questionId}`);
+  await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
 }
 
 async function openProjectAction(page: Page, action: "重命名" | "删除项目") {
@@ -305,8 +347,8 @@ type VisualHardError = {
   detail: string;
 };
 
-async function visualHardErrors(page: Page, viewport: string) {
-  return page.evaluate((viewportName) => {
+async function visualHardErrors(page: Page, viewport: string, options: { requireCoverageTargets?: boolean } = {}) {
+  return page.evaluate(({ viewportName, requireCoverageTargets }) => {
     const isVisible = (element: Element) => {
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
@@ -357,7 +399,7 @@ async function visualHardErrors(page: Page, viewport: string) {
     }
 
     const overflowTargets = Array.from(document.querySelectorAll('[data-v020-check-overflow="true"]')).filter(isVisible);
-    if (overflowTargets.length === 0) {
+    if (requireCoverageTargets && overflowTargets.length === 0) {
       errors.push({
         viewport: viewportName,
         type: "missing-overflow-targets",
@@ -380,7 +422,7 @@ async function visualHardErrors(page: Page, viewport: string) {
     }
 
     const regions = Array.from(document.querySelectorAll("[data-v020-critical-region]")).filter(isVisible);
-    if (regions.length < 2) {
+    if (requireCoverageTargets && regions.length < 2) {
       errors.push({
         viewport: viewportName,
         type: "missing-critical-regions",
@@ -426,7 +468,7 @@ async function visualHardErrors(page: Page, viewport: string) {
       }
     }
     return errors;
-  }, viewport);
+  }, { viewportName: viewport, requireCoverageTargets: options.requireCoverageTargets ?? false });
 }
 
 async function uploadMaterial(page: Page) {
@@ -477,6 +519,129 @@ async function submitQuestionWithScopeOverride(page: Page, projectId: number, do
   );
   await page.getByRole("button", { name: "查找资料依据" }).click();
   return responsePromise;
+}
+
+function utcIsoNow() {
+  return new Date().toISOString();
+}
+
+function visualEvidencePath(viewport: { width: number; height: number }, state: string) {
+  return resolve("tmp/v0.2.0-visual-evidence", `${viewport.width}x${viewport.height}-${state}.png`);
+}
+
+async function captureVisualMatrixState({
+  page,
+  records,
+  browserName,
+  state,
+  dataCommand,
+  viewports = visualMatrixViewports,
+  prepare
+}: {
+  page: Page;
+  records: VisualEvidenceRecord[];
+  browserName: string;
+  state: (typeof visualMatrixStates)[number];
+  dataCommand: string;
+  viewports?: { width: number; height: number }[];
+  prepare: (viewport: { width: number; height: number }) => Promise<void>;
+}) {
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await prepare(viewport);
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    const hardErrors = await visualHardErrors(page, `${viewport.width}x${viewport.height}`);
+    expect(hardErrors).toEqual([]);
+
+    const screenshotPath = visualEvidencePath(viewport, state);
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+    records.push({
+      state,
+      viewport: `${viewport.width}x${viewport.height}`,
+      path: `tmp/v0.2.0-visual-evidence/${viewport.width}x${viewport.height}-${state}.png`,
+      url: page.url(),
+      browser: browserName,
+      data_command: dataCommand,
+      captured_at: utcIsoNow()
+    });
+  }
+}
+
+async function captureUploadingState(
+  page: Page,
+  records: VisualEvidenceRecord[],
+  browserName: string,
+  projectIds: number[],
+  viewports: { width: number; height: number }[]
+) {
+  await installIndeterminateUploadProbe(page);
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    const projectName = await createProject(page, `截图上传 ${viewport.width}x${viewport.height}`);
+    const projectId = await projectIdByName(page, projectName);
+    projectIds.push(projectId);
+    await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
+    const progressCard = page.getByTestId("upload-progress-card");
+    await expect(progressCard).toBeVisible();
+    await expect(progressCard).toHaveAttribute("data-progress-mode", "indeterminate");
+    const hardErrors = await visualHardErrors(page, `${viewport.width}x${viewport.height}`);
+    expect(hardErrors).toEqual([]);
+
+    const screenshotPath = visualEvidencePath(viewport, "paper-ingest-uploading");
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+    records.push({
+      state: "paper-ingest-uploading",
+      viewport: `${viewport.width}x${viewport.height}`,
+      path: `tmp/v0.2.0-visual-evidence/${viewport.width}x${viewport.height}-paper-ingest-uploading.png`,
+      url: page.url(),
+      browser: browserName,
+      data_command: "UI createProject + tests/fixtures/text-layer-material.pdf upload with indeterminate browser progress",
+      captured_at: utcIsoNow()
+    });
+    await expect(progressCard).toHaveCount(0, { timeout: 10_000 });
+  }
+}
+
+async function captureQuestionSearchState(
+  page: Page,
+  records: VisualEvidenceRecord[],
+  browserName: string,
+  seed: SourceReaderSeed,
+  viewports: { width: number; height: number }[]
+) {
+  for (const viewport of viewports) {
+    await page.setViewportSize(viewport);
+    await openQuestionProject(page, seed.question_id, seed.project_name);
+    await page.route(
+      `${apiUrl}/projects/${seed.project_id}/questions`,
+      async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1800));
+        await route.continue();
+      },
+      { times: 1 }
+    );
+    await page.getByTestId("question-text").fill("截图矩阵检索中状态");
+    await page.getByRole("button", { name: "查找资料依据" }).click();
+    await expect(page.getByTestId("question-loading")).toContainText("正在检索来源");
+    const hardErrors = await visualHardErrors(page, `${viewport.width}x${viewport.height}`);
+    expect(hardErrors).toEqual([]);
+
+    const screenshotPath = visualEvidencePath(viewport, "question-search");
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    expect(statSync(screenshotPath).size).toBeGreaterThan(1000);
+    records.push({
+      state: "question-search",
+      viewport: `${viewport.width}x${viewport.height}`,
+      path: `tmp/v0.2.0-visual-evidence/${viewport.width}x${viewport.height}-question-search.png`,
+      url: page.url(),
+      browser: browserName,
+      data_command: "scripts/seed_source_reader.py + delayed real POST /projects/{project_id}/questions",
+      captured_at: utcIsoNow()
+    });
+  }
 }
 
 test("project-validation：空项目名被拦截", async ({ page }) => {
@@ -1330,12 +1495,278 @@ test("visual-hard-errors：固定 viewport 无布局硬错误", async ({ page })
       await page.goto(`/?questionId=${seed.question_id}`);
       await expect(page.getByRole("heading", { name: seed.project_name })).toBeVisible();
       await expect(page.getByTestId("app-shell")).toBeVisible();
-      const errors = await visualHardErrors(page, `${viewport.width}x${viewport.height}`);
+      const errors = await visualHardErrors(page, `${viewport.width}x${viewport.height}`, { requireCoverageTargets: true });
       expect(errors).toEqual([]);
     }
   } finally {
     const deleteResponse = await page.request.delete(`${apiUrl}/projects/${seed.project_id}`);
     expect([200, 404]).toContain(deleteResponse.status());
+  }
+});
+
+test("visual-screenshot-matrix：生成 v0.2.0 视觉截图矩阵和 manifest", async ({ page }, testInfo) => {
+  const evidenceDir = resolve("tmp/v0.2.0-visual-evidence");
+  rmSync(evidenceDir, { recursive: true, force: true });
+  mkdirSync(evidenceDir, { recursive: true });
+  const records: VisualEvidenceRecord[] = [];
+  const projectIdsToDelete: number[] = [];
+  const browserName = testInfo.project.name;
+  const viewport = {
+    desktop: { width: 1440, height: 900 },
+    wide: { width: 1280, height: 832 },
+    compact: { width: 1200, height: 800 },
+    tablet: { width: 1024, height: 768 },
+    mobile: { width: 390, height: 844 }
+  };
+
+  try {
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "first-empty-project",
+      dataCommand: "scripts/reset_demo.py",
+      viewports: [viewport.desktop],
+      prepare: async () => {
+        await page.goto("/");
+        await expect(page.getByRole("heading", { name: "尚未创建项目" })).toBeVisible();
+      }
+    });
+
+    const projectSeed = seedProjectWithCounts();
+    const documentSeed = seedDocumentDetails();
+    const processingSeed = seedProcessingFailure();
+    const pollingSeed = seedProcessingPolling();
+    const sourceSeed = seedSourceReader();
+    const confidenceSeed = seedConfidenceLevels();
+    const noSourceSeed = seedNoSourceActions();
+    const longListsSeed = seedLongLists();
+    projectIdsToDelete.push(
+      projectSeed.id,
+      documentSeed.project_id,
+      processingSeed.project_id,
+      pollingSeed.project_id,
+      sourceSeed.project_id,
+      confidenceSeed.project_id,
+      noSourceSeed.project_id,
+      ...longListsSeed.project_ids
+    );
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "project-created",
+      dataCommand: "scripts/seed_project_counts.py",
+      viewports: [viewport.wide],
+      prepare: async () => {
+        await page.goto("/");
+        await page.getByRole("button", { name: new RegExp(projectSeed.name) }).click();
+        await expect(page.getByRole("heading", { name: projectSeed.name })).toBeVisible();
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "document-list",
+      dataCommand: "scripts/seed_document_details.py",
+      viewports: [viewport.desktop],
+      prepare: async () => {
+        await page.goto("/");
+        await page.getByRole("button", { name: new RegExp(documentSeed.project_name) }).click();
+        await expect(page.getByTestId("document-list").getByText("detail-completed.pdf")).toBeVisible();
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "document-health",
+      dataCommand: "scripts/seed_document_details.py",
+      viewports: [viewport.tablet],
+      prepare: async () => {
+        await page.goto("/");
+        await page.getByRole("button", { name: new RegExp(documentSeed.project_name) }).click();
+        await expect(page.getByTestId("document-list")).toContainText("PDF 文件损坏，无法读取");
+        await expect(page.getByTestId("document-list")).toContainText("PDF 无可提取文字层，v0.2.0 不进入 OCR");
+      }
+    });
+
+    await captureUploadingState(page, records, browserName, projectIdsToDelete, [viewport.mobile]);
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "processing-rail-running",
+      dataCommand: "scripts/seed_processing_polling.py",
+      viewports: [viewport.desktop],
+      prepare: async () => {
+        await page.goto("/");
+        await page.getByRole("button", { name: new RegExp(pollingSeed.project_name) }).click();
+        await expect(page.getByTestId(`processing-track-${pollingSeed.document_ids[0]}`)).toContainText("提取文字");
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "processing-failure-actions",
+      dataCommand: "scripts/seed_processing_failure.py",
+      viewports: [viewport.wide],
+      prepare: async () => {
+        await page.goto("/");
+        await page.getByRole("button", { name: new RegExp(processingSeed.project_name) }).click();
+        const row = page.getByTestId(`document-row-${processingSeed.reprocess_document_id}`);
+        await expect(row.getByTestId(`document-failure-actions-${processingSeed.reprocess_document_id}`)).toBeVisible();
+        await expect(row).toContainText("PDF 文件损坏，无法读取");
+      }
+    });
+
+    await captureQuestionSearchState(page, records, browserName, sourceSeed, [viewport.compact]);
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "source-confidence-levels",
+      dataCommand: "scripts/seed_confidence_levels.py",
+      viewports: [viewport.tablet],
+      prepare: async () => {
+        await openQuestionProject(page, confidenceSeed.question_id, confidenceSeed.project_name);
+        const sourceResults = page.getByTestId("source-results-list");
+        await expect(sourceResults.getByText("强相关")).toBeVisible();
+        await expect(sourceResults.getByText("可参考")).toBeVisible();
+        await expect(sourceResults.getByText("低置信")).toBeVisible();
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "no-reliable-source",
+      dataCommand: "scripts/seed_no_source_actions.py",
+      viewports: [viewport.mobile],
+      prepare: async () => {
+        await openQuestionProject(page, noSourceSeed.question_id, noSourceSeed.project_name);
+        await expect(page.getByTestId("no-source-actions")).toBeVisible();
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "focus-mode",
+      dataCommand: "scripts/seed_source_reader.py",
+      viewports: [viewport.desktop],
+      prepare: async () => {
+        await openQuestionProject(page, sourceSeed.question_id, sourceSeed.project_name);
+        await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+        await page.getByRole("button", { name: "进入专注模式" }).click();
+        await expect(page.getByTestId("app-shell")).toHaveAttribute("data-focus-mode", "true");
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "source-detail",
+      dataCommand: "scripts/seed_source_reader.py",
+      viewports: [viewport.wide],
+      prepare: async () => {
+        await openQuestionProject(page, sourceSeed.question_id, sourceSeed.project_name);
+        await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+        await expect(page.getByTestId("source-reader-source-text")).toContainText("source reader hit");
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "source-page-nav",
+      dataCommand: "scripts/seed_source_reader.py",
+      viewports: [viewport.compact],
+      prepare: async () => {
+        await openQuestionProject(page, sourceSeed.question_id, sourceSeed.project_name);
+        await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+        await page.getByRole("button", { name: "下一页" }).click();
+        await expect(page.getByTestId("source-reader-meta")).toContainText("第 2 / 2 页");
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "pdf-reader",
+      dataCommand: "scripts/seed_source_reader.py",
+      viewports: [viewport.tablet],
+      prepare: async () => {
+        await openQuestionProject(page, sourceSeed.question_id, sourceSeed.project_name);
+        await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+        await expect(page.getByTestId("source-reader-pdf")).toBeVisible();
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "long-lists",
+      dataCommand: "scripts/seed_long_lists.py",
+      viewports: [viewport.mobile],
+      prepare: async () => {
+        await openQuestionProject(page, longListsSeed.question_id, longListsSeed.project_name);
+        await expect(page.getByTestId("document-list").locator("[data-testid^='document-row-']")).toHaveCount(20);
+        await expect(page.getByTestId("source-card")).toHaveCount(20);
+      }
+    });
+
+    await captureVisualMatrixState({
+      page,
+      records,
+      browserName,
+      state: "mobile-workspace",
+      dataCommand: "scripts/seed_source_reader.py",
+      viewports: [viewport.mobile],
+      prepare: async () => {
+        await openQuestionProject(page, sourceSeed.question_id, sourceSeed.project_name);
+        await expect(page.getByTestId("sidebar-nav")).toBeVisible();
+        await expect(page.getByTestId("trace-workspace")).toBeVisible();
+        await expect(page.getByTestId("evidence-preview")).toBeVisible();
+      }
+    });
+
+    expect(records).toHaveLength(visualMatrixStates.length);
+    expect(new Set(records.map((record) => record.state))).toEqual(new Set(visualMatrixStates));
+    expect(new Set(records.map((record) => record.viewport))).toEqual(new Set(visualMatrixViewports.map((item) => `${item.width}x${item.height}`)));
+    writeFileSync(
+      resolve(evidenceDir, "manifest.json"),
+      JSON.stringify(
+        {
+          version: "v0.2.0",
+          git_commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: resolve("."), encoding: "utf-8" }).trim(),
+          generated_at: utcIsoNow(),
+          screenshots: records
+        },
+        null,
+        2
+      ),
+      "utf-8"
+    );
+  } finally {
+    for (const projectId of projectIdsToDelete) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    }
   }
 });
 
