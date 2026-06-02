@@ -173,7 +173,7 @@ def reprocess_document(document_id: int) -> dict:
 def upload_document(project_id: int, file: UploadFile = File(...)) -> dict:
     if file.content_type != "application/pdf" or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="v0.2.0 只支持上传 PDF 文件")
-    upload_root = Path(settings.upload_dir)
+    upload_root = Path(settings.upload_dir).resolve()
     with connect() as conn:
         project = conn.execute("SELECT id FROM projects WHERE id = %s", (project_id,)).fetchone()
     if not project:

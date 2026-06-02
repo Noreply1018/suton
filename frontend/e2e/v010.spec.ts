@@ -2745,6 +2745,7 @@ test("v020-core-loop v020-full-regression：真实上传处理检索来源阅读
 
     await uploadMaterial(page);
     await expect(page.getByTestId("document-status").filter({ hasText: "完成" })).toBeVisible();
+    await page.getByTestId("material-library").getByRole("button", { name: /text-layer-material\.pdf/ }).click();
     await expect(page.getByTestId("document-detail-searchable")).toContainText("可检索");
 
     const question = readFileSync(resolve("tests/fixtures/question.txt"), "utf-8").trim();
@@ -2811,7 +2812,9 @@ test("v020-full-regression：串行覆盖无可靠来源和来源页码导航前
     await expect(page.getByRole("heading", { name: noSourceSeed.project_name })).toBeVisible();
     await expect(page.getByTestId("no-source-actions")).toBeVisible();
     await expect(page.getByTestId("no-source-actions").getByRole("button")).toHaveCount(3);
-    await expect(page.getByText("系统不会生成无来源答案。")).toBeVisible();
+    await expect(page.getByTestId("no-source-actions")).toContainText("未找到可靠来源");
+    await expect(page.getByTestId("no-source-actions")).toContainText("当前资料中没有达到可信阈值的来源片段。");
+    await expect(page.getByTestId("source-card")).toHaveCount(0);
 
     await page.goto(`/?questionId=${sourceSeed.question_id}`);
     await expect(page.getByRole("heading", { name: sourceSeed.project_name })).toBeVisible();

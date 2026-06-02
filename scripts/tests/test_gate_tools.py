@@ -7,8 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "backend"))
 
-from scripts import verify_release_gate  # noqa: E402
+from scripts import reset_demo, verify_release_gate  # noqa: E402
 from scripts.collect_evidence import (  # noqa: E402
     TEST_COMMAND,
     V020_COMMANDS,
@@ -164,6 +165,55 @@ def main() -> None:
     assert extract_python_mapping_keys(script) == {"v020-real-target"}
 
 
+def test_reset_demo_clears_processing_queue(monkeypatch) -> None:
+    removed_jobs: list[tuple[str, bool]] = []
+
+    class FakeQueue:
+        def __init__(self, name: str, connection: object) -> None:
+            self.name = name
+            self.connection = connection
+            self.emptied = False
+
+        def empty(self) -> None:
+            self.emptied = True
+
+    fake_queues: list[FakeQueue] = []
+
+    def fake_queue(name: str, connection: object) -> FakeQueue:
+        queue = FakeQueue(name, connection)
+        fake_queues.append(queue)
+        return queue
+
+    class FakeRegistry:
+        def __init__(self, queue: FakeQueue) -> None:
+            self.queue = queue
+
+        def get_job_ids(self) -> list[str]:
+            return [f"{self.__class__.__name__}-old"]
+
+        def remove(self, job_id: str, delete_job: bool = False) -> None:
+            removed_jobs.append((job_id, delete_job))
+
+    monkeypatch.setattr(reset_demo.Redis, "from_url", lambda url: object())
+    monkeypatch.setattr(reset_demo, "Queue", fake_queue)
+    for name in (
+        "StartedJobRegistry",
+        "DeferredJobRegistry",
+        "FailedJobRegistry",
+        "FinishedJobRegistry",
+        "ScheduledJobRegistry",
+        "CanceledJobRegistry",
+    ):
+        monkeypatch.setattr(reset_demo, name, FakeRegistry)
+
+    reset_demo.clear_processing_queue()
+
+    assert fake_queues[0].name == "suton"
+    assert fake_queues[0].emptied
+    assert len(removed_jobs) == 6
+    assert all(delete_job for _, delete_job in removed_jobs)
+
+
 def test_v020_dashscope_blocker_checklist_matches_current_readme() -> None:
     readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
     assert check_v020_dashscope_blocker_checklist(readme) == []
@@ -178,7 +228,7 @@ def test_v020_dashscope_blocker_checklist_rejects_missing_command() -> None:
 
 def test_v020_dashscope_blocker_checklist_rejects_missing_no_downgrade_constraint() -> None:
     readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
-    readme = readme.replace("剩余阻塞不得降级为 mock、固定向量成功路径或 `--skip-embedding`。", "", 1)
+    readme = readme.replace("后续回归、证据包重跑和发布前审计不得降级为 mock、固定向量成功路径或 `--skip-embedding`。", "", 1)
     errors = check_v020_dashscope_blocker_checklist(readme)
     assert any("不得降级为 mock" in error for error in errors)
     assert any("固定向量成功路径" in error for error in errors)
@@ -187,10 +237,11 @@ def test_v020_dashscope_blocker_checklist_rejects_missing_no_downgrade_constrain
 def test_v020_dashscope_blocker_checklist_rejects_missing_valid_key_requirement() -> None:
     readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
     readme = readme.replace(
-        "必须先取得并在运行环境中设置有效 DashScope `DASHSCOPE_API_KEY`，",
+        "后续回归或证据包重跑时必须继续在运行环境中设置有效 DashScope `DASHSCOPE_API_KEY`，",
         "",
         1,
     )
+    readme = readme.replace("有效 `DASHSCOPE_API_KEY`", "有效凭据", 1)
     errors = check_v020_dashscope_blocker_checklist(readme)
     assert any("有效 DashScope" in error for error in errors)
     assert any("DASHSCOPE_API_KEY" in error for error in errors)
