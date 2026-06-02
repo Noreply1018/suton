@@ -9,7 +9,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from scripts import verify_release_gate  # noqa: E402
-from scripts.collect_evidence import redact, render_command, visual_evidence_summary  # noqa: E402
+from scripts.collect_evidence import (  # noqa: E402
+    TEST_COMMAND,
+    V020_COMMANDS,
+    redact,
+    render_command,
+    visual_evidence_summary,
+)
 from scripts.scan_secrets import scan_text  # noqa: E402
 from scripts.verify_release_gate import check_v020_target_inventory  # noqa: E402
 
@@ -85,6 +91,14 @@ def test_collect_evidence_visual_summary_is_redaction_safe() -> None:
     summary = "\n".join(visual_evidence_summary())
     assert "tmp/v0.2.0-visual-evidence" in summary
     assert "sk-" not in summary
+
+
+def test_collect_evidence_renders_visual_summary_after_screenshot_matrix_command() -> None:
+    collect_evidence_source = (ROOT / "scripts/collect_evidence.py").read_text(encoding="utf-8")
+    command_order = [item["command"] for item in V020_COMMANDS]
+    screenshot_index = command_order.index(["make", "verify-visual", "CHECK=screenshot-matrix"])
+    assert command_order.index(TEST_COMMAND) > screenshot_index
+    assert collect_evidence_source.index("command_sections.append(") < collect_evidence_source.index("sections.extend(visual_evidence_summary())")
 
 
 def test_v020_target_inventory_matches_current_sources() -> None:

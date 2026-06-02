@@ -164,15 +164,14 @@ def main() -> None:
         default_output = "tmp/v0.1.0-evidence-latest.md"
 
     now = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
-    sections = [
+    header_sections = [
         f"# Suton {args.version} 证据包",
         "",
         f"- 生成时间：`{now}`",
         "- 脱敏规则：API key、token、secret、password 类值统一替换为 `<redacted>`。",
         "",
     ]
-    if args.version == "v0.2.0":
-        sections.extend(visual_evidence_summary())
+    command_sections: list[str] = []
     failed: list[str] = []
     for spec in command_specs:
         command = spec["command"]
@@ -180,9 +179,14 @@ def main() -> None:
             returncode, output, duration = run_command(command, args.timeout)
         except subprocess.TimeoutExpired:
             returncode, output, duration = 124, f"command timed out after {args.timeout}s", float(args.timeout)
-        sections.append(render_command(command, returncode, output, duration, spec.get("data"), spec.get("evidence")))
+        command_sections.append(render_command(command, returncode, output, duration, spec.get("data"), spec.get("evidence")))
         if returncode != 0:
             failed.append(" ".join(command))
+
+    sections = [*header_sections]
+    if args.version == "v0.2.0":
+        sections.extend(visual_evidence_summary())
+    sections.extend(command_sections)
 
     output_path = (ROOT / (args.output or default_output)).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)

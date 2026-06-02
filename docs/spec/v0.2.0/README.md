@@ -120,7 +120,7 @@ make verify-secrets
 
 v0.2.0 发布证据必须执行 `make evidence-package-with-tests` 生成，并固定写入 `tmp/v0.2.0-evidence-latest.md`；证据必须包含必需命令、退出码、执行时间、Git commit、数据准备命令、证据路径和结论，并通过 `make verify-secrets` 确认不含 secret。
 
-当前 `make evidence-package-with-tests` 已切换为 v0.2.0 证据包生成器，会写入固定 `tmp/v0.2.0-evidence-latest.md` 并记录视觉证据摘要、每条必需命令的退出码、执行时间、数据准备命令、证据路径和结论。该 target 当前真实执行时因 `make verify-e2e SCENARIO=v020-full-regression` 缺少 `DASHSCOPE_API_KEY` 失败，因此证据归档和整体发布门禁仍保持阻塞。
+当前 `make evidence-package-with-tests` 已切换为 v0.2.0 证据包生成器，会写入固定 `tmp/v0.2.0-evidence-latest.md` 并记录视觉证据摘要、每条必需命令的退出码、执行时间、数据准备命令、证据路径和结论。v0.2.0 视觉证据摘要必须在证据命令执行后读取，以反映本轮 `screenshot-matrix` 生成后的最新 manifest。该 target 当前真实执行时因 `make verify-e2e SCENARIO=v020-full-regression` 缺少 `DASHSCOPE_API_KEY` 失败，因此证据归档和整体发布门禁仍保持阻塞。
 
 v0.2.0 还必须形成视觉证据：
 
@@ -253,3 +253,4 @@ v0.2.0 发布前必须满足：
 | 2026-06-02 | 对齐 DashScope 缺凭据错误文案：`embed_texts`、`dev_check` 和 `doctor` 的缺少 `DASHSCOPE_API_KEY` 输出改为版本中性的 Suton DashScope embedding 文案，并新增测试防止 v0.2.0 证据输出继续绑定 v0.1.0 表述；真实 DashScope 成功路径仍保持阻塞。 | v0.2.0 实现推进 | `backend/app/embedding.py`、`scripts/dev_check.py`、`scripts/doctor.py`、`backend/tests/test_embedding.py`、`scripts/tests/test_gate_tools.py` |
 | 2026-06-02 | 对齐本地运行诊断 CLI 描述：`scripts/doctor.py` 的 argparse 描述改为版本中性 `Suton local runtime diagnostics`，并新增 gate 测试防止 v0.2.0 本地诊断入口继续显示 v0.1.0 绑定标题；真实 DashScope 成功路径仍保持阻塞。 | v0.2.0 实现推进 | `scripts/doctor.py`、`scripts/tests/test_gate_tools.py` |
 | 2026-06-02 | 同步非百分比上传进度状态：`feature-003-processing-progress.md` 中非百分比上传矩阵已由 `make verify-e2e SCENARIO=v020-upload-indeterminate-progress` 和 `make verify-visual CHECK=upload-indeterminate-progress` 覆盖，验证浏览器上传字节不可计算时展示固定 40% 流动线且不显示伪百分比、剩余时间或伪速度；正常处理完成路径、真实 DashScope 成功路径和总回归仍保持各自阻塞结论。 | v0.2.0 spec 状态维护 | `items/feature-003-processing-progress.md`、`frontend/e2e/v010.spec.ts`、`frontend/app/page.tsx`、`frontend/app/globals.css` |
+| 2026-06-02 | 修正 v0.2.0 证据包视觉摘要时序：`scripts/collect_evidence.py` 改为先执行证据命令并收集命令章节，再读取视觉 manifest 和人工审美审计摘要，避免 `tmp/v0.2.0-evidence-latest.md` 顶部 manifest commit 落后于本轮 `screenshot-matrix`；本地重新生成证据包仍因 `v020-full-regression` 缺少 `DASHSCOPE_API_KEY` 失败，证据归档继续阻塞。 | v0.2.0 实现推进 | `scripts/collect_evidence.py`、`scripts/tests/test_gate_tools.py`、`items/gate-002-v020-validation.md` |
