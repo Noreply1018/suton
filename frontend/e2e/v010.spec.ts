@@ -2373,6 +2373,108 @@ test("minimal-loop/source-results：真实最小闭环返回来源结果", async
   await expect(pdfLink).toHaveAttribute("href", /\/documents\/\d+\/file#page=\d+/);
 });
 
+test("v020-core-loop v020-full-regression：真实上传处理检索来源阅读闭环", async ({ page }) => {
+  let projectId: number | null = null;
+  let projectName: string | null = null;
+  try {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "Suton" })).toBeVisible();
+    await expect(page.getByTestId("sidebar-nav")).toBeVisible();
+    await expect(page.getByTestId("trace-workspace")).toBeVisible();
+    await expect(page.getByTestId("evidence-preview")).toBeVisible();
+
+    projectName = await createProject(page, "v020 总回归真实闭环");
+    projectId = await projectIdByName(page, projectName);
+    await expect(page.getByTestId("project-context-name")).toContainText(projectName);
+
+    await uploadMaterial(page);
+    await expect(page.getByTestId("document-status").filter({ hasText: "完成" })).toBeVisible();
+    await expect(page.getByTestId("document-detail-searchable")).toContainText("可检索");
+
+    const question = readFileSync(resolve("tests/fixtures/question.txt"), "utf-8").trim();
+    await page.getByTestId("question-text").fill(question);
+    const activeProjectId = projectId;
+    const questionResponsePromise = page.waitForResponse(
+      (response) => response.url() === `${apiUrl}/projects/${activeProjectId}/questions` && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "查找资料依据" }).click();
+    const questionResponse = await questionResponsePromise;
+    expect(questionResponse.status()).toBe(200);
+
+    await expect(page.getByText("pgvector 相似度").first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("question-context-toolbar")).toContainText(question);
+    await expect(page.getByTestId("source-card").first()).toContainText("text-layer-material.pdf");
+    await expect(page.getByTestId("source-card").first().getByTestId("source-confidence-pill")).toBeVisible();
+    await expect(page.getByText("系统不会生成无来源答案。")).toHaveCount(0);
+
+    await page.getByTestId("source-card").first().getByRole("button", { name: /text-layer-material\.pdf/ }).click();
+    const reader = page.getByTestId("source-reader");
+    await expect(reader).toBeVisible();
+    await expect(page.getByTestId("source-reader-filename")).toContainText("text-layer-material.pdf");
+    await expect(page.getByTestId("source-reader-meta")).toContainText(/第 \d+ \/ \d+ 页 · 排序 1 ·/);
+    await expect(page.getByTestId("source-reader-source-text")).toBeVisible();
+    await expect(page.getByTestId("source-reader-context")).toBeVisible();
+    await expect(page.getByTestId("source-reader-pdf")).toHaveAttribute("src", /\/documents\/\d+\/file#page=\d+$/);
+
+    await page.getByRole("button", { name: "进入专注模式" }).click();
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-focus-mode", "true");
+    await expect(page.getByTestId("sidebar-nav")).toBeHidden();
+    await expect(page.getByTestId("source-card").first()).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("source-reader")).toBeVisible();
+
+    await page.getByRole("button", { name: "退出专注模式" }).click();
+    await expect(page.getByTestId("app-shell")).toHaveAttribute("data-focus-mode", "false");
+    await expect(page.getByRole("heading", { name: projectName })).toBeVisible();
+    await expect(page.getByTestId("source-card").first()).toHaveAttribute("aria-current", "true");
+  } finally {
+    if (projectId !== null) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    } else if (projectName !== null) {
+      const projectsResponse = await page.request.get(`${apiUrl}/projects`);
+      if (projectsResponse.ok()) {
+        const projects = (await projectsResponse.json()) as Project[];
+        const project = projects.find((item) => item.name === projectName);
+        if (project) {
+          const deleteResponse = await page.request.delete(`${apiUrl}/projects/${project.id}`);
+          expect([200, 404]).toContain(deleteResponse.status());
+        }
+      }
+    }
+  }
+});
+
+test("v020-full-regression：串行覆盖无可靠来源和来源页码导航前端状态", async ({ page }) => {
+  let noSourceSeed: NoSourceActionsSeed | null = null;
+  let sourceSeed: SourceReaderSeed | null = null;
+  try {
+    noSourceSeed = seedNoSourceActions();
+    sourceSeed = seedSourceReader();
+
+    await page.goto(`/?questionId=${noSourceSeed.question_id}`);
+    await expect(page.getByRole("heading", { name: noSourceSeed.project_name })).toBeVisible();
+    await expect(page.getByTestId("no-source-actions")).toBeVisible();
+    await expect(page.getByTestId("no-source-actions").getByRole("button")).toHaveCount(3);
+    await expect(page.getByText("系统不会生成无来源答案。")).toBeVisible();
+
+    await page.goto(`/?questionId=${sourceSeed.question_id}`);
+    await expect(page.getByRole("heading", { name: sourceSeed.project_name })).toBeVisible();
+    await page.getByTestId("source-card").first().getByRole("button", { name: /source-reader\.pdf/ }).click();
+    const reader = page.getByTestId("source-reader");
+    await expect(reader).toBeVisible();
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 1 / 2 页 · 排序 1 · 强相关");
+    await reader.getByRole("button", { name: "下一页" }).click();
+    await expect(page.getByTestId("source-reader-meta")).toContainText("第 2 / 2 页 · 排序 1 · 强相关");
+    await expect(reader.getByRole("button", { name: "回到命中页" })).toBeEnabled();
+  } finally {
+    for (const projectId of [noSourceSeed?.project_id, sourceSeed?.project_id]) {
+      if (projectId === undefined) continue;
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    }
+  }
+});
+
 test("document-failure：损坏 PDF 展示失败状态", async ({ page }) => {
   await page.goto("/");
   await createProject(page, "损坏 PDF 验证项目");
