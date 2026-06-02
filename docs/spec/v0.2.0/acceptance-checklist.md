@@ -76,5 +76,6 @@
 - `make verify-api-contract CHECK=v020-model-api`、`make verify-db CHECK=v020-schema`、`make verify-visual CHECK=screenshot-matrix`、`make verify-visual CHECK=visual-hard-errors`、`make verify-visual CHECK=visual-evidence-manifest` 和 `make verify-visual CHECK=aesthetic-audit-record` 均为真实验证并通过。
 - `make verify-spec` 和 `make verify-secrets` 通过；`make verify-spec` 必须覆盖 v0.2.0 spec 结构检查。
 - 执行 `make evidence-package-with-tests` 后，视觉截图、manifest、人工审美审计记录和 `tmp/v0.2.0-evidence-latest.md` 已归档，且不包含 secret。
+- 依赖真实 DashScope embedding 成功路径的 E2E 和证据包命令已使用有效 `DASHSCOPE_API_KEY` 重新执行并通过；缺少该凭据时只能保持阻塞，不得改用 mock、固定向量成功路径或 `--skip-embedding`。
 - 修改已追踪文件后已完成 subagent 严格审计。
 - 审计通过后已提交 Git commit。
