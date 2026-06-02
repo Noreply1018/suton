@@ -150,14 +150,22 @@ def check_v020_item(path: Path) -> list[str]:
 
 def extract_python_mapping_keys(path: Path) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    keys: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Dict):
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or node.name != "main":
             continue
-        for key in node.keys:
-            if isinstance(key, ast.Constant) and isinstance(key.value, str) and key.value.startswith("v020-"):
-                keys.add(key.value)
-    return keys
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Assign):
+                continue
+            if not any(isinstance(target, ast.Name) and target.id == "checks" for target in child.targets):
+                continue
+            if not isinstance(child.value, ast.Dict):
+                continue
+            keys: set[str] = set()
+            for key in child.value.keys:
+                if isinstance(key, ast.Constant) and isinstance(key.value, str) and key.value.startswith("v020-"):
+                    keys.add(key.value)
+            return keys
+    return set()
 
 
 def extract_makefile_visual_checks() -> set[str]:

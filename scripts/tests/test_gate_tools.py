@@ -20,6 +20,7 @@ from scripts.scan_secrets import scan_text  # noqa: E402
 from scripts.verify_release_gate import (  # noqa: E402
     check_v020_dashscope_blocker_checklist,
     check_v020_target_inventory,
+    extract_python_mapping_keys,
 )
 
 
@@ -138,6 +139,29 @@ def test_v020_target_inventory_rejects_dashscope_scenario_in_skip_embedding(monk
     readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
     errors = check_v020_target_inventory(readme)
     assert any("SCENARIO=v020-full-regression" in error and "--skip-embedding" in error for error in errors)
+
+
+def test_python_mapping_key_extraction_ignores_fixture_dicts(tmp_path: Path) -> None:
+    script = tmp_path / "verify_like.py"
+    script.write_text(
+        """
+FIXTURES = {"v020-not-a-target": "fixture"}
+
+
+def helper() -> None:
+    checks = {"v020-helper-only": object()}
+
+
+def main() -> None:
+    checks = {
+        "v020-real-target": object(),
+        "legacy-target": object(),
+    }
+    checks["v020-real-target"]()
+""",
+        encoding="utf-8",
+    )
+    assert extract_python_mapping_keys(script) == {"v020-real-target"}
 
 
 def test_v020_dashscope_blocker_checklist_matches_current_readme() -> None:
