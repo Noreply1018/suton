@@ -17,7 +17,10 @@ from scripts.collect_evidence import (  # noqa: E402
     visual_evidence_summary,
 )
 from scripts.scan_secrets import scan_text  # noqa: E402
-from scripts.verify_release_gate import check_v020_target_inventory  # noqa: E402
+from scripts.verify_release_gate import (  # noqa: E402
+    check_v020_dashscope_blocker_checklist,
+    check_v020_target_inventory,
+)
 
 
 def run_script(name: str) -> subprocess.CompletedProcess[str]:
@@ -35,7 +38,7 @@ def test_release_gate_script_passes() -> None:
     result = run_script("verify_release_gate.py")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "release gate spec checks passed" in result.stdout
-    assert "target inventory, and DashScope skip allowlist checks passed" in result.stdout
+    assert "target inventory, DashScope skip allowlist, and blocker checklist checks passed" in result.stdout
 
 
 def test_secret_scan_passes() -> None:
@@ -135,6 +138,39 @@ def test_v020_target_inventory_rejects_dashscope_scenario_in_skip_embedding(monk
     readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
     errors = check_v020_target_inventory(readme)
     assert any("SCENARIO=v020-full-regression" in error and "--skip-embedding" in error for error in errors)
+
+
+def test_v020_dashscope_blocker_checklist_matches_current_readme() -> None:
+    readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
+    assert check_v020_dashscope_blocker_checklist(readme) == []
+
+
+def test_v020_dashscope_blocker_checklist_rejects_missing_command() -> None:
+    readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
+    readme = readme.replace("- `make verify-e2e SCENARIO=v020-question-search`\n", "", 1)
+    errors = check_v020_dashscope_blocker_checklist(readme)
+    assert any("v020-question-search" in error for error in errors)
+
+
+def test_v020_dashscope_blocker_checklist_rejects_missing_no_downgrade_constraint() -> None:
+    readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
+    readme = readme.replace("剩余阻塞不得降级为 mock、固定向量成功路径或 `--skip-embedding`。", "", 1)
+    errors = check_v020_dashscope_blocker_checklist(readme)
+    assert any("不得降级为 mock" in error for error in errors)
+    assert any("固定向量成功路径" in error for error in errors)
+
+
+def test_v020_dashscope_blocker_checklist_rejects_missing_valid_key_requirement() -> None:
+    readme = (ROOT / "docs/spec/v0.2.0/README.md").read_text(encoding="utf-8")
+    readme = readme.replace(
+        "必须先取得并在运行环境中设置有效 DashScope `DASHSCOPE_API_KEY`，",
+        "",
+        1,
+    )
+    errors = check_v020_dashscope_blocker_checklist(readme)
+    assert any("有效 DashScope" in error for error in errors)
+    assert any("DASHSCOPE_API_KEY" in error for error in errors)
+    assert any("运行环境中设置" in error for error in errors)
 
 
 def test_processing_no_text_layer_reason_uses_v020_contract() -> None:

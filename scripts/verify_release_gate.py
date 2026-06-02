@@ -16,6 +16,15 @@ V020_E2E_SPEC = ROOT / "frontend/e2e/v010.spec.ts"
 VERIFY_DB = ROOT / "scripts/verify_db.py"
 VERIFY_API_CONTRACT = ROOT / "scripts/verify_api_contract.py"
 VERIFY_VISUAL_GATE = ROOT / "scripts/verify_visual_gate.py"
+DASHSCOPE_REQUIRED_E2E_SCENARIOS = {
+    "v020-document-reprocess",
+    "v020-document-scope-search",
+    "v020-question-search",
+    "v020-question-no-source",
+    "v020-processing-progress",
+    "v020-core-loop",
+    "v020-full-regression",
+}
 
 
 def fail(message: str) -> None:
@@ -234,18 +243,38 @@ def check_v020_target_inventory(readme: str) -> list[str]:
         errors.append(f"{V020_SPEC_DIR / 'README.md'}: 已实现清单声明 `make verify-visual CHECK={target}`，但缺少对应 `visual-{target}` Playwright 场景")
 
     e2e_skip_embedding = extract_makefile_e2e_skip_embedding_scenarios()
-    dashscope_required = {
-        "v020-document-reprocess",
-        "v020-document-scope-search",
-        "v020-question-search",
-        "v020-question-no-source",
-        "v020-processing-progress",
-        "v020-core-loop",
-        "v020-full-regression",
-    }
-    forbidden_skip = sorted(dashscope_required & e2e_skip_embedding)
+    forbidden_skip = sorted(DASHSCOPE_REQUIRED_E2E_SCENARIOS & e2e_skip_embedding)
     for scenario in forbidden_skip:
         errors.append(f"{MAKEFILE}: `SCENARIO={scenario}` 需要真实 DashScope 成功路径，不得进入 --skip-embedding 白名单")
+    return errors
+
+
+def check_v020_dashscope_blocker_checklist(readme: str) -> list[str]:
+    errors: list[str] = []
+    heading = "## 集中阻塞确认清单"
+    if heading not in readme:
+        return [f"{V020_SPEC_DIR / 'README.md'}: 缺少集中阻塞确认清单"]
+    section = readme.split(heading, 1)[1].split("\n## ", 1)[0]
+    required_commands = [
+        *(f"make verify-e2e SCENARIO={scenario}" for scenario in sorted(DASHSCOPE_REQUIRED_E2E_SCENARIOS)),
+        "make evidence-package-with-tests",
+    ]
+    for command in required_commands:
+        if command not in section:
+            errors.append(f"{V020_SPEC_DIR / 'README.md'}: 集中阻塞确认清单缺少 `{command}`")
+    required_constraints = [
+        "不得降级为 mock",
+        "固定向量成功路径",
+        "`--skip-embedding`",
+        "有效 DashScope",
+        "`DASHSCOPE_API_KEY`",
+        "运行环境中设置",
+        "必须保持阻塞",
+        "不得包含真实 API key、token、secret 或 password",
+    ]
+    for constraint in required_constraints:
+        if constraint not in section:
+            errors.append(f"{V020_SPEC_DIR / 'README.md'}: 集中阻塞确认清单缺少约束 `{constraint}`")
     return errors
 
 
@@ -285,6 +314,7 @@ def check_v020_spec() -> list[str]:
         if required not in readme:
             errors.append(f"{V020_SPEC_DIR / 'README.md'}: 缺少关键约束 {required}")
     errors.extend(check_v020_target_inventory(readme))
+    errors.extend(check_v020_dashscope_blocker_checklist(readme))
 
     for path in sorted(V020_ITEMS_DIR.glob("*.md")):
         errors.extend(check_v020_item(path))
@@ -334,7 +364,7 @@ def main() -> None:
         fail("\n".join(v020_errors))
 
     print("v0.1.0 release gate spec checks passed")
-    print("v0.2.0 draft spec structure, target inventory, and DashScope skip allowlist checks passed")
+    print("v0.2.0 draft spec structure, target inventory, DashScope skip allowlist, and blocker checklist checks passed")
 
 
 if __name__ == "__main__":
