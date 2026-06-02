@@ -45,6 +45,24 @@ FORBIDDEN_UI_LIBS = {
     "@nextui-org/react",
 }
 
+REQUIRED_COMPONENTS = {
+    "Button": "按钮组件",
+    "IconButton": "图标按钮组件",
+    "TextInput": "单行输入组件",
+    "Textarea": "多行输入组件",
+    "Select": "选择器组件",
+    "SegmentedControl": "分段控件组件",
+    "StatusPill": "状态标签组件",
+    "EmptyState": "空状态组件",
+    "Dialog": "对话框组件",
+    "Sheet": "抽屉/阅读面板组件",
+    "ListRow": "列表行组件",
+    "Toolbar": "工具栏组件",
+    "ProgressRail": "进度轨组件",
+    "SourceResult": "来源结果组件",
+    "PdfReaderShell": "PDF 阅读壳组件",
+}
+
 
 def fail(message: str) -> None:
     print(f"design token verification failed: {message}", file=sys.stderr)
@@ -102,6 +120,13 @@ def check_page(page: str) -> None:
     missing_stroke_width = [tag for tag in sized_icon_tags if "strokeWidth={1.75}" not in tag]
     if missing_stroke_width:
         fail("lucide icons with fixed size must set strokeWidth={1.75}")
+    for component, description in REQUIRED_COMPONENTS.items():
+        definition_pattern = rf"(?:function\s+{re.escape(component)}\b|const\s+{re.escape(component)}\s*=)"
+        if not re.search(definition_pattern, page):
+            fail(f"missing {description}: {component}")
+        usage_pattern = rf"<{re.escape(component)}(?:\s|>|/)"
+        if not re.search(usage_pattern, page):
+            fail(f"{description} must be used in page.tsx: {component}")
 
 
 def check_package() -> None:

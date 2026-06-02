@@ -1,6 +1,19 @@
 "use client";
 
-import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ButtonHTMLAttributes,
+  ChangeEvent,
+  FormEvent,
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+  forwardRef,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -112,6 +125,176 @@ type UploadProgressState = {
   mode: "determinate" | "indeterminate";
   progress: number;
 };
+
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes.filter(Boolean).join(" ");
+}
+
+function Button({
+  variant = "secondary",
+  className,
+  children,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" | "warning" }) {
+  const variantClass = {
+    primary: "bg-[#315f43] text-white hover:bg-[#264b35]",
+    secondary: "border border-[#c6d6c5] bg-[#fbfcf8] text-[#315f43] hover:bg-[#edf6e9]",
+    danger: "bg-[#9d4d2f] text-white hover:bg-[#874027]",
+    warning: "border border-[#d5c9aa] bg-[#fffaf0] text-[#6f5633] hover:bg-[#fff5db]"
+  }[variant];
+  return (
+    <button
+      {...props}
+      className={cx("focus-ring inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition disabled:opacity-55", variantClass, className)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconButton({ className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { "aria-label": string }) {
+  return (
+    <button
+      {...props}
+      className={cx("focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] hover:bg-[#edf6e9] disabled:opacity-45", className)}
+    >
+      {children}
+    </button>
+  );
+}
+
+const TextInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function TextInput({ className, ...props }, ref) {
+  return <input {...props} ref={ref} className={cx("focus-ring w-full rounded-md border border-[#cbd8c9] bg-[#fbfcf8] px-3 py-2 text-sm text-[#26382d]", className)} />;
+});
+
+const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...props }, ref) {
+  return (
+    <textarea
+      {...props}
+      ref={ref}
+      className={cx("focus-ring w-full resize-none rounded-md border border-[#c9d7c8] bg-[#fbfcf8] px-4 py-3 text-sm leading-6 text-[#26382d]", className)}
+    />
+  );
+});
+
+function Select({ className, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select {...props} className={cx("focus-ring rounded-md border border-[#c6d6c5] bg-[#f8fbf4] px-2 py-2 text-xs font-semibold text-[#315f43]", className)}>
+      {children}
+    </select>
+  );
+}
+
+function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="inline-grid rounded-md border border-[#c8d8c7] bg-[#f8fbf4] p-1 text-sm font-semibold text-[#315f43] sm:grid-cols-2">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          aria-pressed={value === option.value}
+          onClick={() => onChange(option.value)}
+          className={cx("focus-ring rounded px-3 py-2 transition", value === option.value ? "bg-[#315f43] text-white shadow-sm" : "hover:bg-[#edf6e9]")}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StatusPill({ children, className, testId }: { children: ReactNode; className?: string; testId?: string }) {
+  return (
+    <span data-testid={testId} className={cx("rounded-full border border-[#c5d6c2] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43]", className)}>
+      {children}
+    </span>
+  );
+}
+
+function EmptyState({ children, className, testId }: { children: ReactNode; className?: string; testId?: string }) {
+  return (
+    <div data-testid={testId} className={cx("grid min-h-[360px] place-items-center border-y border-[#dce4d7] px-6 text-center text-sm leading-6 text-[#4f5d50]", className)}>
+      {children}
+    </div>
+  );
+}
+
+function Dialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div
+      role="presentation"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onClose();
+      }}
+      className="fixed inset-0 z-50 grid place-items-center bg-[#17251d]/35 px-4"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-dialog-title"
+        className="w-full max-w-[440px] rounded-md border border-[#c8d8c7] bg-[#fbfcf8] p-5 shadow-xl"
+      >
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h2 id="project-dialog-title" className="text-xl font-semibold text-[#1f3428]">
+            {title}
+          </h2>
+          <IconButton type="button" aria-label="关闭" onClick={onClose}>
+            <X size={16} strokeWidth={1.75} />
+          </IconButton>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Sheet({ children, className, testId }: { children: ReactNode; className?: string; testId: string }) {
+  return (
+    <section className={className} data-testid={testId}>
+      {children}
+    </section>
+  );
+}
+
+function ListRow({ children, className, testId }: { children: ReactNode; className?: string; testId: string }) {
+  return (
+    <div className={className} data-testid={testId}>
+      {children}
+    </div>
+  );
+}
+
+function Toolbar({ children, className, testId }: { children: ReactNode; className?: string; testId: string }) {
+  return (
+    <div className={className} data-testid={testId}>
+      {children}
+    </div>
+  );
+}
+
+function ProgressRail({ children, testId }: { children: ReactNode; testId: string }) {
+  return (
+    <div className="mt-3 grid gap-2" data-testid={testId}>
+      {children}
+    </div>
+  );
+}
+
+function PdfReaderShell({ pdfUrl }: { pdfUrl: string }) {
+  return (
+    <div className="h-[360px] border-b border-[#dce4d7] bg-[#eef2e9]">
+      <iframe title="PDF 阅读" src={pdfUrl} className="h-full w-full" data-testid="source-reader-pdf" />
+    </div>
+  );
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${apiUrl}${path}`, {
@@ -657,14 +840,15 @@ export default function Home() {
           </div>
 
           <div className="mb-5">
-            <button
+            <Button
               type="button"
               onClick={openCreateProjectDialog}
-              className="focus-ring inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#315f43] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#264b35]"
+              variant="primary"
+              className="w-full"
             >
               <Plus size={16} strokeWidth={1.75} />
               新建项目
-            </button>
+            </Button>
           </div>
 
           <div className="min-h-0 max-h-[420px] flex-1 space-y-2 overflow-auto max-xl:max-h-[280px]" data-testid="project-list">
@@ -730,15 +914,15 @@ export default function Home() {
                 </h2>
                 {activeProject && (
                   <div className="relative shrink-0">
-                    <button
+                    <IconButton
                       type="button"
                       aria-label="项目操作"
                       aria-expanded={projectMenuOpen}
                       onClick={() => setProjectMenuOpen((open) => !open)}
-                      className="focus-ring grid h-9 w-9 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] hover:bg-[#edf6e9]"
+                      className="h-9 w-9"
                     >
                       <MoreHorizontal size={18} strokeWidth={1.75} />
-                    </button>
+                    </IconButton>
                     {projectMenuOpen && (
                       <div className="absolute left-0 top-11 z-20 w-36 rounded-md border border-[#c8d8c7] bg-[#fbfcf8] p-1 shadow-lg">
                         <button
@@ -861,9 +1045,9 @@ export default function Home() {
             </section>
 
             <section className="paper-panel">
-              <div
+              <Toolbar
                 className="mb-4 flex min-h-12 items-center justify-between gap-4 rounded-md border border-[#d8ddd2] bg-[#f8fbf4] px-3 py-2 max-md:flex-col max-md:items-start"
-                data-testid="question-context-toolbar"
+                testId="question-context-toolbar"
               >
                 <div className="min-w-0">
                   <p className="line-clamp-2 text-sm font-semibold leading-5 text-[#203a2b]" data-testid="question-context-text">
@@ -874,34 +1058,34 @@ export default function Home() {
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <button
+                  <Button
                     type="button"
                     onClick={() => document.querySelector('[data-testid="document-scope-selector"]')?.scrollIntoView({ behavior: "smooth", block: "center" })}
-                    className="focus-ring rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
+                    className="px-3 py-2 text-xs"
                   >
                     检索范围
-                  </button>
+                  </Button>
                   {result && (
-                    <button
+                    <Button
                       type="button"
                       disabled={questionBusy || busy || (scopeMode === "selected" && selectedScopeIds.length === 0)}
                       onClick={researchCurrentQuestion}
-                      className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9] disabled:opacity-55"
+                      className="gap-1 px-3 py-2 text-xs"
                     >
                       <RefreshCw size={16} strokeWidth={1.75} className={questionBusy ? "animate-spin" : ""} />
                       重新检索
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <IconButton
                     type="button"
                     aria-label="进入专注模式"
                     onClick={() => setFocusMode(true)}
-                    className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#fbfcf8] text-[#315f43] hover:bg-[#edf6e9]"
+                    className="bg-[#fbfcf8]"
                   >
                     <Maximize2 size={16} strokeWidth={1.75} />
-                  </button>
+                  </IconButton>
                 </div>
-              </div>
+              </Toolbar>
               <div className="mb-4 flex items-center gap-2 text-[#203a2b]">
                 <Search size={18} strokeWidth={1.75} />
                 <h3 className="text-lg font-semibold">溯源请求</h3>
@@ -910,14 +1094,13 @@ export default function Home() {
                 <label className="sr-only" htmlFor="question">
                   手动输入题目
                 </label>
-                <textarea
+                <Textarea
                   id="question"
                   ref={questionInputRef}
                   data-testid="question-text"
                   value={question}
                   onChange={(event) => setQuestion(event.target.value)}
                   rows={7}
-                  className="focus-ring w-full resize-none rounded-md border border-[#c9d7c8] bg-[#fbfcf8] px-4 py-3 text-sm leading-6 text-[#26382d]"
                   placeholder="粘贴一道题目文本"
                 />
                 <DocumentScopeSelector
@@ -929,13 +1112,14 @@ export default function Home() {
                 />
                 <div className="mt-4 flex items-center justify-between gap-4 max-sm:flex-col max-sm:items-start">
                   <p className="text-sm text-[#4f5d50]">提交后仅返回带文件、页码和片段的资料依据。</p>
-                  <button
+                  <Button
                     disabled={questionSubmitDisabled}
-                    className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#315f43] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#264b35] disabled:opacity-55"
+                    variant="primary"
+                    className="px-4"
                   >
                     {questionBusy ? <Loader2 size={16} strokeWidth={1.75} className="animate-spin" /> : <Search size={16} strokeWidth={1.75} />}
                     查找资料依据
-                  </button>
+                  </Button>
                 </div>
               </form>
               {!focusMode && (
@@ -984,41 +1168,14 @@ export default function Home() {
           ) : (
             <div className="max-h-[calc(100svh-190px)] space-y-4 overflow-y-auto pr-1 max-xl:max-h-[430px] max-md:max-h-[360px]" data-testid="source-results-list">
               {sourcedMatches.map((match) => (
-                <article
+                <SourceResult
                   key={match.id}
-                  aria-current={sourceDetail?.id === match.id ? "true" : undefined}
-                  className={`source-card ${sourceDetail?.id === match.id ? "ring-2 ring-[#7fa37e]" : ""}`}
-                  data-testid="source-card"
-                >
-                  <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        openSourceDetail(match).catch((err: Error) => setSourceDetailError(err.message));
-                      }}
-                      className="focus-ring min-w-0 rounded-md text-left"
-                    >
-                      <p className="break-all text-sm font-semibold text-[#203a2b]">
-                        {match.rank}. {match.document_filename} 第 {match.page_no} 页
-                      </p>
-                      <p className="mt-1 text-xs text-[#5e6d5d]">
-                        pgvector 相似度 {match.score.toFixed(4)} · {match.hit_reason}
-                      </p>
-                    </button>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <ConfidencePill label={match.confidence_label} />
-                      <a
-                        href={`${apiUrl}${match.pdf_url}`}
-                        target="_blank"
-                        className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
-                      >
-                        <ArrowUpRight size={16} strokeWidth={1.75} />
-                        PDF
-                      </a>
-                    </div>
-                  </div>
-                  <p className="break-all text-sm leading-6 text-[#435244]">{match.source_text}</p>
-                </article>
+                  match={match}
+                  selected={sourceDetail?.id === match.id}
+                  onOpen={(selectedMatch) => {
+                    openSourceDetail(selectedMatch).catch((err: Error) => setSourceDetailError(err.message));
+                  }}
+                />
               ))}
               {(sourceDetail || sourceDetailError) && (
                 <SourceReader
@@ -1094,41 +1251,39 @@ function ProjectNameDialog({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   return (
-    <DialogFrame title={title} onClose={onClose}>
+    <Dialog title={title} onClose={onClose}>
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
           <label className="mb-2 block text-sm font-semibold text-[#273d2f]" htmlFor="project-dialog-name">
             项目名称
           </label>
-          <input
+          <TextInput
             id="project-dialog-name"
             autoFocus
             value={name}
             onChange={(event) => onNameChange(event.target.value)}
             placeholder="例如：高性能计算期末"
-            className="focus-ring w-full rounded-md border border-[#cbd8c9] bg-[#fbfcf8] px-3 py-2 text-sm"
           />
           {error && <p className="mt-2 text-sm text-[#9d4d2f]">{error}</p>}
         </div>
         <div className="flex justify-end gap-2">
-          <button
+          <Button
             type="button"
             disabled={busy}
             onClick={onClose}
-            className="focus-ring rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#315f43] disabled:opacity-55"
           >
             取消
-          </button>
-          <button
+          </Button>
+          <Button
             disabled={busy}
-            className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#315f43] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
+            variant="primary"
           >
             {busy && <Loader2 size={16} strokeWidth={1.75} className="animate-spin" />}
             {submitLabel}
-          </button>
+          </Button>
         </div>
       </form>
-    </DialogFrame>
+    </Dialog>
   );
 }
 
@@ -1146,7 +1301,7 @@ function ProjectDeleteDialog({
   onConfirm: () => void;
 }) {
   return (
-    <DialogFrame title="删除项目" onClose={onClose}>
+    <Dialog title="删除项目" onClose={onClose}>
       <div className="space-y-3 text-sm leading-6 text-[#3f5142]">
         <p className="font-semibold text-[#1f3428]">删除项目及其全部资料</p>
         <p>将删除项目、全部资料、题目和来源结果。</p>
@@ -1156,25 +1311,24 @@ function ProjectDeleteDialog({
         {error && <p className="text-[#9d4d2f]">{error}</p>}
       </div>
       <div className="mt-5 flex justify-end gap-2">
-        <button
+        <Button
           type="button"
           disabled={busy}
           onClick={onClose}
-          className="focus-ring rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#315f43] disabled:opacity-55"
         >
           取消
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={busy}
           onClick={onConfirm}
-          className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#9d4d2f] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
+          variant="danger"
         >
           {busy && <Loader2 size={16} strokeWidth={1.75} className="animate-spin" />}
           确认删除
-        </button>
+        </Button>
       </div>
-    </DialogFrame>
+    </Dialog>
   );
 }
 
@@ -1192,66 +1346,31 @@ function DocumentDeleteDialog({
   onConfirm: () => void;
 }) {
   return (
-    <DialogFrame title="删除资料" onClose={onClose}>
+    <Dialog title="删除资料" onClose={onClose}>
       <div className="space-y-3 text-sm leading-6 text-[#3f5142]">
         <p className="font-semibold text-[#1f3428]">{document.filename}</p>
         <p>将删除该 PDF、页面文本、索引和相关来源结果。题目记录会保留。</p>
         {error && <p className="text-[#9d4d2f]">{error}</p>}
       </div>
       <div className="mt-5 flex justify-end gap-2">
-        <button
+        <Button
           type="button"
           disabled={busy}
           onClick={onClose}
-          className="focus-ring rounded-md border border-[#c6d6c5] bg-[#fbfcf8] px-3 py-2 text-sm font-semibold text-[#315f43] disabled:opacity-55"
         >
           取消
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={busy}
           onClick={onConfirm}
-          className="focus-ring inline-flex items-center gap-2 rounded-md bg-[#9d4d2f] px-3 py-2 text-sm font-semibold text-white disabled:opacity-55"
+          variant="danger"
         >
           {busy && <Loader2 size={16} strokeWidth={1.75} className="animate-spin" />}
           删除资料
-        </button>
+        </Button>
       </div>
-    </DialogFrame>
-  );
-}
-
-function DialogFrame({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
-  return (
-    <div
-      role="presentation"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onClose();
-      }}
-      className="fixed inset-0 z-50 grid place-items-center bg-[#17251d]/35 px-4"
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="project-dialog-title"
-        className="w-full max-w-[440px] rounded-md border border-[#c8d8c7] bg-[#fbfcf8] p-5 shadow-xl"
-      >
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <h2 id="project-dialog-title" className="text-xl font-semibold text-[#1f3428]">
-            {title}
-          </h2>
-          <button
-            type="button"
-            aria-label="关闭"
-            onClick={onClose}
-            className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] text-[#315f43] hover:bg-[#edf6e9]"
-          >
-            <X size={16} strokeWidth={1.75} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
@@ -1279,28 +1398,14 @@ function DocumentScopeSelector({
 }) {
   return (
     <section className="mt-4" data-testid="document-scope-selector">
-      <div className="inline-grid rounded-md border border-[#c8d8c7] bg-[#f8fbf4] p-1 text-sm font-semibold text-[#315f43] sm:grid-cols-2">
-        <button
-          type="button"
-          aria-pressed={mode === "all"}
-          onClick={() => onModeChange("all")}
-          className={`focus-ring rounded px-3 py-2 transition ${
-            mode === "all" ? "bg-[#315f43] text-white shadow-sm" : "hover:bg-[#edf6e9]"
-          }`}
-        >
-          全部可检索资料
-        </button>
-        <button
-          type="button"
-          aria-pressed={mode === "selected"}
-          onClick={() => onModeChange("selected")}
-          className={`focus-ring rounded px-3 py-2 transition ${
-            mode === "selected" ? "bg-[#315f43] text-white shadow-sm" : "hover:bg-[#edf6e9]"
-          }`}
-        >
-          指定资料
-        </button>
-      </div>
+      <SegmentedControl
+        value={mode}
+        onChange={onModeChange}
+        options={[
+          { value: "all", label: "全部可检索资料" },
+          { value: "selected", label: "指定资料" }
+        ]}
+      />
 
       {mode === "selected" && (
         <div className="mt-3 divide-y divide-[#dce4d7] border-y border-[#dce4d7]" data-testid="document-scope-list">
@@ -1359,9 +1464,9 @@ function DocumentRowView({
 }) {
   const failed = isFailedDocument(document);
   return (
-    <div
+    <ListRow
       className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-4 ${highlighted ? "rounded-md bg-[#fff8e6] ring-2 ring-[#d9b86f]" : ""}`}
-      data-testid={`document-row-${document.id}`}
+      testId={`document-row-${document.id}`}
     >
       <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-md bg-[#e5efe0] text-[#315f43]">
         <FileText size={18} strokeWidth={1.75} />
@@ -1382,45 +1487,48 @@ function DocumentRowView({
         <ProcessingTrack document={document} />
         {failed && (
           <div className="mt-3 flex flex-wrap gap-2" data-testid={`document-failure-actions-${document.id}`}>
-            <button
+            <Button
               type="button"
               onClick={() => onReprocess(document)}
-              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
+              className="gap-1 px-2 py-1 text-xs"
             >
               <RefreshCwIcon />
               重新处理
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => onDelete(document)}
-              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec]"
+              variant="danger"
+              className="gap-1 px-2 py-1 text-xs"
             >
               <Trash2 size={16} strokeWidth={1.75} />
               删除资料
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => onSelect(document)}
-              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#d5c9aa] bg-[#fffaf0] px-2 py-1 text-xs font-semibold text-[#6f5633] hover:bg-[#fff5db]"
+              variant="warning"
+              className="gap-1 px-2 py-1 text-xs"
             >
               <AlertCircle size={16} strokeWidth={1.75} />
               查看失败原因
-            </button>
+            </Button>
           </div>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <Status value={document.status} />
-        <button
+        <Button
           type="button"
           onClick={() => onDelete(document)}
-          className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec]"
+          variant="danger"
+          className="gap-1 px-2 py-1 text-xs"
         >
           <Trash2 size={16} strokeWidth={1.75} />
           删除资料
-        </button>
+        </Button>
       </div>
-    </div>
+    </ListRow>
   );
 }
 
@@ -1476,24 +1584,25 @@ function DocumentDetail({
         </div>
         {failed && (
           <div className="flex shrink-0 flex-wrap justify-end gap-2" data-testid="document-detail-failure-actions">
-            <button
+            <Button
               type="button"
               disabled={busy}
               onClick={() => onReprocess(document)}
-              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9] disabled:opacity-55"
+              className="gap-1 px-2 py-1 text-xs"
             >
               <RefreshCwIcon />
               重新处理
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               disabled={busy}
               onClick={() => onDelete(document)}
-              className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#c98972] bg-[#fff8f4] px-2 py-1 text-xs font-semibold text-[#9d4d2f] hover:bg-[#fff1ec] disabled:opacity-55"
+              variant="danger"
+              className="gap-1 px-2 py-1 text-xs"
             >
               <Trash2 size={16} strokeWidth={1.75} />
               删除资料
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -1515,6 +1624,35 @@ function DocumentDetail({
         <DetailItem testId="processed-at" label="最近处理时间" value={formatDateTime(document.processed_at)} />
       </dl>
     </section>
+  );
+}
+
+function SourceResult({ match, selected, onOpen }: { match: Match; selected: boolean; onOpen: (match: Match) => void }) {
+  return (
+    <article aria-current={selected ? "true" : undefined} className={`source-card ${selected ? "ring-2 ring-[#7fa37e]" : ""}`} data-testid="source-card">
+      <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
+        <button type="button" onClick={() => onOpen(match)} className="focus-ring min-w-0 rounded-md text-left">
+          <p className="break-all text-sm font-semibold text-[#203a2b]">
+            {match.rank}. {match.document_filename} 第 {match.page_no} 页
+          </p>
+          <p className="mt-1 text-xs text-[#5e6d5d]">
+            pgvector 相似度 {match.score.toFixed(4)} · {match.hit_reason}
+          </p>
+        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <ConfidencePill label={match.confidence_label} />
+          <a
+            href={`${apiUrl}${match.pdf_url}`}
+            target="_blank"
+            className="focus-ring inline-flex items-center gap-1 rounded-md border border-[#b8cdb8] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43] hover:bg-[#edf6e9]"
+          >
+            <ArrowUpRight size={16} strokeWidth={1.75} />
+            PDF
+          </a>
+        </div>
+      </div>
+      <p className="break-all text-sm leading-6 text-[#435244]">{match.source_text}</p>
+    </article>
   );
 }
 
@@ -1553,7 +1691,7 @@ function SourceReader({
   if (error) {
     const missingFile = error === "资料文件不存在";
     return (
-      <section className={`${shellClassName} rounded-md border border-[#c98972] bg-[#fff8f4]`} data-testid="source-reader-error">
+      <Sheet className={`${shellClassName} rounded-md border border-[#c98972] bg-[#fff8f4]`} testId="source-reader-error">
         {mobileHeader}
         <div className="p-4">
           <div className="mb-2 flex items-center gap-2 font-semibold text-[#9d4d2f]">
@@ -1562,7 +1700,7 @@ function SourceReader({
           </div>
           <p className="text-sm leading-6 text-[#6e4a3b]">{missingFile ? "无法打开原 PDF 文件。" : "该来源已被删除或重新处理。"}</p>
         </div>
-      </section>
+      </Sheet>
     );
   }
   if (!detail || currentPage === null) return null;
@@ -1571,7 +1709,7 @@ function SourceReader({
   const atHitPage = currentPage === detail.page_no;
 
   return (
-    <section className={`${shellClassName} rounded-md border border-[#c8d8c7] bg-[#fbfcf8]`} data-testid="source-reader">
+    <Sheet className={`${shellClassName} rounded-md border border-[#c8d8c7] bg-[#fbfcf8]`} testId="source-reader">
       {mobileHeader}
       <div className="border-b border-[#dce4d7] px-4 py-3">
         <div className="mb-3 flex items-start justify-between gap-3">
@@ -1593,32 +1731,37 @@ function SourceReader({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <IconButton
             type="button"
             aria-label="上一页"
             disabled={currentPage <= 1}
             onClick={() => onPageChange(currentPage - 1)}
-            className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] disabled:opacity-45"
           >
             <ChevronLeft size={16} strokeWidth={1.75} />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
             type="button"
             aria-label="下一页"
             disabled={currentPage >= detail.page_count}
             onClick={() => onPageChange(currentPage + 1)}
-            className="focus-ring grid h-8 w-8 place-items-center rounded-md border border-[#c6d6c5] bg-[#f8fbf4] text-[#315f43] disabled:opacity-45"
           >
             <ChevronRight size={16} strokeWidth={1.75} />
-          </button>
-          <button
+          </IconButton>
+          <Select aria-label="选择 PDF 页码" value={currentPage} onChange={(event) => onPageChange(Number(event.target.value))}>
+            {Array.from({ length: detail.page_count }, (_, index) => index + 1).map((page) => (
+              <option key={page} value={page}>
+                第 {page} 页
+              </option>
+            ))}
+          </Select>
+          <Button
             type="button"
             disabled={atHitPage}
             onClick={() => onPageChange(detail.page_no)}
-            className="focus-ring rounded-md border border-[#c6d6c5] bg-[#f8fbf4] px-3 py-2 text-xs font-semibold text-[#315f43] disabled:opacity-45"
+            className="px-3 py-2 text-xs"
           >
             回到命中页
-          </button>
+          </Button>
           <a
             href={pdfUrl}
             target="_blank"
@@ -1629,9 +1772,7 @@ function SourceReader({
           </a>
         </div>
       </div>
-      <div className="h-[360px] border-b border-[#dce4d7] bg-[#eef2e9]">
-        <iframe title="PDF 阅读" src={pdfUrl} className="h-full w-full" data-testid="source-reader-pdf" />
-      </div>
+      <PdfReaderShell pdfUrl={pdfUrl} />
       <div className="space-y-3 px-4 py-4 text-sm leading-6 text-[#435244]">
         <p className="text-xs font-semibold text-[#637061]">命中原因</p>
         <p data-testid="source-reader-hit-reason">{detail.hit_reason}</p>
@@ -1649,7 +1790,7 @@ function SourceReader({
           pgvector 相似度 {detail.score.toFixed(4)} · chunk {detail.chunk_id}
         </p>
       </div>
-    </section>
+    </Sheet>
   );
 }
 
@@ -1713,7 +1854,7 @@ function QuestionHistoryList({
 
 function ProcessingTrack({ document }: { document: DocumentRow }) {
   return (
-    <div className="mt-3 grid gap-2" data-testid={`processing-track-${document.id}`}>
+    <ProgressRail testId={`processing-track-${document.id}`}>
       <div className="grid grid-cols-6 gap-2">
         {processingStages.map((stage) => {
           const state = processingStageState(document, stage);
@@ -1752,7 +1893,7 @@ function ProcessingTrack({ document }: { document: DocumentRow }) {
           <span>{document.failure_reason}</span>
         </p>
       )}
-    </div>
+    </ProgressRail>
   );
 }
 
@@ -1762,33 +1903,30 @@ function RefreshCwIcon() {
 
 function FirstEmptyProject() {
   return (
-    <div data-testid="v020-first-empty-project" className="py-8">
+    <EmptyState testId="v020-first-empty-project" className="min-h-0 justify-items-start border-0 py-8 text-left">
       <div className="max-w-[520px]">
         <p className="text-lg font-semibold text-[#203a2b]">添加第一份课程资料</p>
         <p className="mt-2 text-sm leading-6 text-[#516050]">
           先创建一个项目名称，再上传带文字层的 PDF。这里会显示页数、文字层质量和处理状态。
         </p>
       </div>
-    </div>
+    </EmptyState>
   );
 }
 
 function Status({ value }: { value: string }) {
   return (
-    <span data-testid="document-status" className="rounded-full border border-[#c5d6c2] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43]">
+    <StatusPill testId="document-status" className="block">
       {statusLabel(value)}
-    </span>
+    </StatusPill>
   );
 }
 
 function ConfidencePill({ label }: { label: string }) {
   return (
-    <span
-      data-testid="source-confidence-pill"
-      className="rounded-full border border-[#c5d6c2] bg-[#f8fbf4] px-2 py-1 text-xs font-semibold text-[#315f43]"
-    >
+    <StatusPill testId="source-confidence-pill">
       {label}
-    </span>
+    </StatusPill>
   );
 }
 
@@ -1855,9 +1993,9 @@ function NoReliableSourceActions({
 
 function EmptyResults({ children }: { children: ReactNode }) {
   return (
-    <div className="grid min-h-[360px] place-items-center border-y border-[#dce4d7] px-6 text-center text-sm leading-6 text-[#4f5d50]">
+    <EmptyState>
       <p>{children}</p>
-    </div>
+    </EmptyState>
   );
 }
 
