@@ -127,3 +127,17 @@ def test_processing_no_text_layer_reason_uses_v020_contract() -> None:
     processing_source = (ROOT / "backend/app/processing.py").read_text(encoding="utf-8")
     assert "v0.1.0 不进入 OCR" not in processing_source
     assert "PDF 无可提取文字层，v0.2.0 不进入 OCR" in processing_source
+
+
+def test_dashscope_missing_key_messages_are_version_neutral() -> None:
+    checked_files = [
+        ROOT / "backend/app/embedding.py",
+        ROOT / "scripts/dev_check.py",
+        ROOT / "scripts/doctor.py",
+    ]
+    source = "\n".join(path.read_text(encoding="utf-8") for path in checked_files)
+
+    assert "v0.1.0 要求的 DashScope embedding" not in source
+    assert "v0.1.0 embedding 链路" not in source
+    assert "缺少 DASHSCOPE_API_KEY，无法生成 Suton 要求的 DashScope embedding" in source
+    assert "缺少 DASHSCOPE_API_KEY，无法满足 Suton DashScope embedding 链路" in source

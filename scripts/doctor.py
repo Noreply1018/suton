@@ -45,7 +45,7 @@ def check_pythonpath() -> str:
 
 def check_dashscope_key() -> str:
     if not os.getenv("DASHSCOPE_API_KEY"):
-        raise RuntimeError("缺少 DASHSCOPE_API_KEY，无法生成 v0.1.0 要求的 DashScope embedding")
+        raise RuntimeError("缺少 DASHSCOPE_API_KEY，无法生成 Suton 要求的 DashScope embedding")
     return "已设置"
 
 

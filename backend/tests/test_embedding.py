@@ -74,3 +74,23 @@ def test_embed_texts_rejects_wrong_dimension(monkeypatch: pytest.MonkeyPatch) ->
 
     with pytest.raises(embedding.EmbeddingConfigurationError, match="embedding 维度"):
         embedding.embed_texts(["text"])
+
+
+def test_embed_texts_missing_dashscope_key_uses_version_neutral_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        embedding,
+        "settings",
+        SimpleNamespace(
+            dashscope_api_key=None,
+            dashscope_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            embedding_model="text-embedding-v4",
+            embedding_dimension=1024,
+        ),
+    )
+
+    with pytest.raises(embedding.EmbeddingConfigurationError) as exc_info:
+        embedding.embed_texts(["text"])
+
+    message = str(exc_info.value)
+    assert message == "缺少 DASHSCOPE_API_KEY，无法生成 Suton 要求的 DashScope embedding"
+    assert "v0.1.0" not in message

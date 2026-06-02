@@ -11,7 +11,7 @@ class EmbeddingConfigurationError(RuntimeError):
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     if not settings.dashscope_api_key:
-        raise EmbeddingConfigurationError("缺少 DASHSCOPE_API_KEY，无法生成 v0.1.0 要求的 DashScope embedding")
+        raise EmbeddingConfigurationError("缺少 DASHSCOPE_API_KEY，无法生成 Suton 要求的 DashScope embedding")
     client = OpenAI(api_key=settings.dashscope_api_key, base_url=settings.dashscope_base_url)
     vectors: list[list[float]] = []
     for start in range(0, len(texts), 10):

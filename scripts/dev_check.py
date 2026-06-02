@@ -22,7 +22,7 @@ def main() -> None:
     for binary in ("docker", "node", "pnpm", "uv"):
         require_binary(binary)
     if not args.skip_embedding and not os.getenv("DASHSCOPE_API_KEY"):
-        print("缺少 DASHSCOPE_API_KEY，无法满足 v0.1.0 embedding 链路", file=sys.stderr)
+        print("缺少 DASHSCOPE_API_KEY，无法满足 Suton DashScope embedding 链路", file=sys.stderr)
         sys.exit(1)
     subprocess.run(["docker", "info"], check=True, stdout=subprocess.DEVNULL)
     print("dev prerequisites ok")
