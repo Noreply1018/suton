@@ -120,6 +120,8 @@ make verify-secrets
 
 v0.2.0 发布证据必须执行 `make evidence-package-with-tests` 生成，并固定写入 `tmp/v0.2.0-evidence-latest.md`；证据必须包含必需命令、退出码、执行时间、Git commit、数据准备命令、证据路径和结论，并通过 `make verify-secrets` 确认不含 secret。
 
+当前 `make evidence-package-with-tests` 已切换为 v0.2.0 证据包生成器，会写入固定 `tmp/v0.2.0-evidence-latest.md` 并记录视觉证据摘要、每条必需命令的退出码、执行时间、数据准备命令、证据路径和结论。该 target 当前真实执行时因 `make verify-e2e SCENARIO=v020-full-regression` 缺少 `DASHSCOPE_API_KEY` 失败，因此证据归档和整体发布门禁仍保持阻塞。
+
 v0.2.0 还必须形成视觉证据：
 
 - 桌面 viewport 截图：1440x900、1280x832。
@@ -232,3 +234,4 @@ v0.2.0 发布前必须满足：
 | 2026-06-02 | 落地视觉硬错误真实浏览器门禁：新增 `make verify-visual CHECK=visual-hard-errors`，使用真实 Web、FastAPI、PostgreSQL 和固定来源 seed 覆盖 1440x900、1280x832、1200x800、1024x768、390x844，检查横向滚动、按钮溢出、标记文本溢出、关键区域重叠、空白主体和浏览器级纵向滚动；移动端工作台改为视口内三段滚动以满足硬错误契约；截图矩阵、manifest 和人工审美审计仍保持阻塞。 | v0.2.0 实现推进 | `Makefile`、`frontend/app/globals.css`、`frontend/e2e/v010.spec.ts`、`items/gate-001-visual-quality.md` |
 | 2026-06-02 | 落地截图矩阵真实浏览器门禁：新增 `make verify-visual CHECK=screenshot-matrix`，使用真实 Web、FastAPI、PostgreSQL、Redis/RQ 和固定 seed 生成 16 张截图与 manifest，覆盖 16 个固定状态和 5 个固定 viewport，并通过 `visual-evidence-manifest` 校验；人工审美审计仍因 `visual-audit.md` 缺失保持阻塞。 | v0.2.0 实现推进 | `Makefile`、`frontend/e2e/v010.spec.ts`、`frontend/app/page.tsx`、`frontend/app/globals.css`、`items/gate-001-visual-quality.md` |
 | 2026-06-02 | 完成人工审美审计记录切片：基于当前 HEAD 的截图矩阵、manifest 和 contact sheet 派发 subagent 只读审计，确认界面符合高级浅色自然系且未命中视觉禁区，新增 `docs/spec/v0.2.0/visual-audit.md` 并使 `make verify-visual CHECK=aesthetic-audit-record` 通过；v0.2.0 整体总回归、真实 DashScope 成功路径和证据归档仍未完成。 | v0.2.0 实现推进 | `docs/spec/v0.2.0/visual-audit.md`、`items/gate-001-visual-quality.md` |
+| 2026-06-02 | 落地 v0.2.0 证据包生成切片：`make evidence-package-with-tests` 生成固定 `tmp/v0.2.0-evidence-latest.md`，记录视觉证据摘要和每条必需命令的退出码、执行时间、数据准备命令、证据路径和结论；当前因 `v020-full-regression` 缺少 `DASHSCOPE_API_KEY` 失败，证据归档发布门禁仍保持阻塞。 | v0.2.0 实现推进 | `Makefile`、`scripts/collect_evidence.py`、`items/gate-002-v020-validation.md` |

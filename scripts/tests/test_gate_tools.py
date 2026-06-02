@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from scripts.collect_evidence import redact  # noqa: E402
+from scripts.collect_evidence import redact, render_command, visual_evidence_summary  # noqa: E402
 from scripts.scan_secrets import scan_text  # noqa: E402
 
 
@@ -56,6 +56,29 @@ def test_secret_scan_blocks_hardcoded_settings_assignment() -> None:
 
 def test_collect_evidence_redacts_secrets() -> None:
     secret = "sk-" + "c" * 32
-    redacted = redact(f"api_key={secret}\nDASHSCOPE_API_KEY={secret}")
+    redacted = redact(f"api_key={secret}\nDASHSCOPE_API_KEY={secret}\nAuthorization: Bearer {secret}\nCookie: session={secret}")
     assert secret not in redacted
     assert "<redacted>" in redacted
+    assert "Authorization: <redacted>" in redacted
+    assert "Cookie: <redacted>" in redacted
+
+
+def test_collect_evidence_renders_v020_fields() -> None:
+    rendered = render_command(
+        ["make", "verify-visual", "CHECK=screenshot-matrix"],
+        0,
+        "ok",
+        1.25,
+        "fixed visual seed matrix",
+        "tmp/v0.2.0-visual-evidence/",
+    )
+    assert "- 结论：通过" in rendered
+    assert "- 执行时间：`1.25s`" in rendered
+    assert "- 数据准备命令：fixed visual seed matrix" in rendered
+    assert "- 证据路径：tmp/v0.2.0-visual-evidence/" in rendered
+
+
+def test_collect_evidence_visual_summary_is_redaction_safe() -> None:
+    summary = "\n".join(visual_evidence_summary())
+    assert "tmp/v0.2.0-visual-evidence" in summary
+    assert "sk-" not in summary
