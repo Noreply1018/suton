@@ -117,6 +117,7 @@ type UploadedDocument = {
   failure_reason: string | null;
   chunk_count: number;
   searchable: boolean;
+  processed_at: string | null;
 };
 
 type VisualEvidenceRecord = {
@@ -2285,6 +2286,69 @@ test("v020-processing-progress：真实上传后处理轨道最终完成", async
     expect(completedDocument.chunk_count).toBeGreaterThan(0);
   } finally {
     if (projectId) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    } else if (projectName !== null) {
+      const projectsResponse = await page.request.get(`${apiUrl}/projects`);
+      if (projectsResponse.ok()) {
+        const projects = (await projectsResponse.json()) as Project[];
+        const project = projects.find((item) => item.name === projectName);
+        if (project) {
+          const deleteResponse = await page.request.delete(`${apiUrl}/projects/${project.id}`);
+          expect([200, 404]).toContain(deleteResponse.status());
+        }
+      }
+    }
+  }
+});
+
+test("v020-document-reprocess：已完成资料重新处理后再次完成", async ({ page }) => {
+  let projectId: number | null = null;
+  let projectName: string | null = null;
+  try {
+    await page.goto("/");
+    projectName = await createProject(page, "资料重新处理项目");
+    projectId = await projectIdByName(page, projectName);
+    await uploadMaterial(page);
+
+    const documentsResponse = await page.request.get(`${apiUrl}/projects/${projectId}/documents`);
+    expect(documentsResponse.status()).toBe(200);
+    const documents = (await documentsResponse.json()) as UploadedDocument[];
+    const document = documents.find((item) => item.filename === "text-layer-material.pdf");
+    if (!document) throw new Error("uploaded document not found");
+    expect(document.status).toBe("completed");
+    expect(document.chunk_count).toBeGreaterThan(0);
+
+    await page.getByTestId(`document-row-${document.id}`).getByRole("button", { name: /text-layer-material\.pdf/ }).click();
+    await expect(page.getByTestId("document-detail-actions").getByRole("button", { name: "重新处理" })).toBeVisible();
+    const reprocessResponsePromise = page.waitForResponse(
+      (response) => response.url().endsWith(`/documents/${document.id}/reprocess`) && response.request().method() === "POST"
+    );
+    await page.getByTestId("document-detail-actions").getByRole("button", { name: "重新处理" }).click();
+    const reprocessResponse = await reprocessResponsePromise;
+    expect(reprocessResponse.status()).toBe(200);
+    const reprocessingDocument = (await reprocessResponse.json()) as UploadedDocument;
+    expect(reprocessingDocument.status).toBe("uploaded");
+    expect(reprocessingDocument.processing_stage).toBe("uploaded");
+
+    const row = page.getByTestId(`document-row-${document.id}`);
+    await expect(row.getByTestId("document-status")).toContainText("重新处理中");
+    await expect(row.getByTestId(`processing-track-${document.id}`)).toContainText("上传完成");
+    await expect(page.getByTestId("document-detail-status")).toContainText("重新处理中");
+
+    await expect(page.getByTestId("document-status").filter({ hasText: "完成" })).toBeVisible({ timeout: 120_000 });
+    const completedResponse = await page.request.get(`${apiUrl}/documents/${document.id}`);
+    expect(completedResponse.status()).toBe(200);
+    const completedDocument = (await completedResponse.json()) as UploadedDocument;
+    expect(completedDocument.status).toBe("completed");
+    expect(completedDocument.processing_stage).toBe("completed");
+    expect(completedDocument.failed_stage).toBeNull();
+    expect(completedDocument.failure_code).toBeNull();
+    expect(completedDocument.failure_reason).toBeNull();
+    expect(completedDocument.searchable).toBe(true);
+    expect(completedDocument.chunk_count).toBeGreaterThan(0);
+  } finally {
+    if (projectId !== null) {
       const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
       expect([200, 404]).toContain(deleteResponse.status());
     } else if (projectName !== null) {

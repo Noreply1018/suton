@@ -1517,7 +1517,7 @@ function DocumentRowView({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <Status value={document.status} />
+        <Status document={document} />
         <Button
           type="button"
           onClick={() => onDelete(document)}
@@ -1616,7 +1616,7 @@ function DocumentDetail({
         <DetailItem testId="text-quality" label="文字层质量" value={document.text_quality_label} />
         <DetailItem testId="chunk-count" label="chunk 数" value={displayNumber(document.chunk_count)} />
         <DetailItem testId="searchable" label="可检索状态" value={document.searchable ? "可检索" : "不可检索"} />
-        <DetailItem testId="status" label="处理状态" value={statusLabel(document.status)} />
+        <DetailItem testId="status" label="处理状态" value={documentStatusLabel(document)} />
         <DetailItem testId="processing-stage" label="处理阶段" value={processingStageLabel(document.processing_stage)} />
         <DetailItem testId="failed-stage" label="失败阶段" value={document.failed_stage ? processingStageLabel(document.failed_stage) : "无"} />
         <DetailItem testId="failure-code" label="失败码" value={document.failure_code ?? "无"} />
@@ -1915,10 +1915,10 @@ function FirstEmptyProject() {
   );
 }
 
-function Status({ value }: { value: string }) {
+function Status({ document }: { document: DocumentRow }) {
   return (
     <StatusPill testId="document-status" className="block">
-      {statusLabel(value)}
+      {documentStatusLabel(document)}
     </StatusPill>
   );
 }
@@ -2021,6 +2021,13 @@ function statusLabel(value: string) {
     unsupported: "不支持"
   };
   return labels[value] ?? value;
+}
+
+function documentStatusLabel(document: DocumentRow) {
+  if (["uploaded", "processing"].includes(document.status) && document.processed_at) {
+    return "重新处理中";
+  }
+  return statusLabel(document.status);
 }
 
 function projectStatusLabel(value: string) {
