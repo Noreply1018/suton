@@ -23,7 +23,7 @@ type ProjectSeed = {
 
 type QuestionDetail = {
   id: number;
-  matches: { confidence_label: string }[];
+  matches: { confidence_label: string; document_id: number; document_filename: string }[];
 };
 
 type DocumentDetailsSeed = {
@@ -488,6 +488,29 @@ async function uploadMaterial(page: Page) {
   await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
   await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toBeVisible();
   await expect(page.getByTestId("document-status").filter({ hasText: "完成" })).toBeVisible({ timeout: 90_000 });
+}
+
+async function uploadFixtureAndWait(page: Page, projectId: number, fixturePath: string, filename: string) {
+  const uploadResponsePromise = page.waitForResponse(
+    (response) => response.url() === `${apiUrl}/projects/${projectId}/documents` && response.request().method() === "POST"
+  );
+  await page.getByTestId("document-file").setInputFiles(resolve(fixturePath));
+  const uploadResponse = await uploadResponsePromise;
+  expect(uploadResponse.status()).toBe(200);
+  const document = (await uploadResponse.json()) as UploadedDocument;
+  expect(document.filename).toBe(filename);
+
+  const row = page.getByTestId(`document-row-${document.id}`);
+  await expect(row).toContainText(filename);
+  await expect(row.getByTestId("document-status")).toContainText("完成", { timeout: 120_000 });
+
+  const completedResponse = await page.request.get(`${apiUrl}/documents/${document.id}`);
+  expect(completedResponse.status()).toBe(200);
+  const completedDocument = (await completedResponse.json()) as UploadedDocument;
+  expect(completedDocument.status).toBe("completed");
+  expect(completedDocument.searchable).toBe(true);
+  expect(completedDocument.chunk_count).toBeGreaterThan(0);
+  return completedDocument;
 }
 
 async function installIndeterminateUploadProbe(page: Page) {
@@ -2347,6 +2370,66 @@ test("v020-document-reprocess：已完成资料重新处理后再次完成", asy
     expect(completedDocument.failure_reason).toBeNull();
     expect(completedDocument.searchable).toBe(true);
     expect(completedDocument.chunk_count).toBeGreaterThan(0);
+  } finally {
+    if (projectId !== null) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    } else if (projectName !== null) {
+      const projectsResponse = await page.request.get(`${apiUrl}/projects`);
+      if (projectsResponse.ok()) {
+        const projects = (await projectsResponse.json()) as Project[];
+        const project = projects.find((item) => item.name === projectName);
+        if (project) {
+          const deleteResponse = await page.request.delete(`${apiUrl}/projects/${project.id}`);
+          expect([200, 404]).toContain(deleteResponse.status());
+        }
+      }
+    }
+  }
+});
+
+test("v020-document-scope-search：指定资料后结果只来自选中资料范围", async ({ page }) => {
+  let projectId: number | null = null;
+  let projectName: string | null = null;
+  try {
+    await page.goto("/");
+    projectName = await createProject(page, "资料范围检索项目");
+    projectId = await projectIdByName(page, projectName);
+
+    const referenceDocument = await uploadFixtureAndWait(
+      page,
+      projectId,
+      "tests/fixtures/text-layer-material.pdf",
+      "text-layer-material.pdf"
+    );
+    const selectedDocument = await uploadFixtureAndWait(page, projectId, "tests/fixtures/question-source.pdf", "question-source.pdf");
+
+    await page.getByTestId("document-scope-selector").getByRole("button", { name: "指定资料" }).click();
+    await page.getByTestId(`document-scope-option-${selectedDocument.id}`).getByRole("checkbox").check();
+    await expect(page.getByTestId(`document-scope-option-${selectedDocument.id}`).getByRole("checkbox")).toBeChecked();
+    await expect(page.getByTestId(`document-scope-option-${referenceDocument.id}`).getByRole("checkbox")).not.toBeChecked();
+
+    const question = readFileSync(resolve("tests/fixtures/question.txt"), "utf-8").trim();
+    await page.getByTestId("question-text").fill(question);
+    const responsePromise = page.waitForResponse(
+      (response) => response.url() === `${apiUrl}/projects/${projectId}/questions` && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "查找资料依据" }).click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(200);
+    const requestBody = JSON.parse(response.request().postData() ?? "{}") as { text: string; document_ids: number[] | null };
+    expect(requestBody.text).toBe(question);
+    expect(requestBody.document_ids).toEqual([selectedDocument.id]);
+
+    await expect(page.getByText("pgvector 相似度").first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("source-card").first()).toContainText("question-source.pdf");
+    await expect(page.getByTestId("source-card").first()).not.toContainText("text-layer-material.pdf");
+
+    const body = (await response.json()) as QuestionDetail;
+    expect(body.matches.length).toBeGreaterThan(0);
+    expect(body.matches.every((match) => match.document_id === selectedDocument.id)).toBe(true);
+    expect(body.matches.some((match) => match.document_id === referenceDocument.id)).toBe(false);
+    expect(body.matches.every((match) => match.document_filename === "question-source.pdf")).toBe(true);
   } finally {
     if (projectId !== null) {
       const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
