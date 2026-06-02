@@ -23,6 +23,9 @@ type ProjectSeed = {
 
 type QuestionDetail = {
   id: number;
+  status: string;
+  failure_code: string | null;
+  failure_reason: string | null;
   matches: { confidence_label: string; document_id: number; document_filename: string }[];
 };
 
@@ -2430,6 +2433,117 @@ test("v020-document-scope-search：指定资料后结果只来自选中资料范
     expect(body.matches.every((match) => match.document_id === selectedDocument.id)).toBe(true);
     expect(body.matches.some((match) => match.document_id === referenceDocument.id)).toBe(false);
     expect(body.matches.every((match) => match.document_filename === "question-source.pdf")).toBe(true);
+  } finally {
+    if (projectId !== null) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    } else if (projectName !== null) {
+      const projectsResponse = await page.request.get(`${apiUrl}/projects`);
+      if (projectsResponse.ok()) {
+        const projects = (await projectsResponse.json()) as Project[];
+        const project = projects.find((item) => item.name === projectName);
+        if (project) {
+          const deleteResponse = await page.request.delete(`${apiUrl}/projects/${project.id}`);
+          expect([200, 404]).toContain(deleteResponse.status());
+        }
+      }
+    }
+  }
+});
+
+test("v020-question-search：新题检索展示加载态并返回带置信层级来源", async ({ page }) => {
+  let projectId: number | null = null;
+  let projectName: string | null = null;
+  try {
+    await page.goto("/");
+    projectName = await createProject(page, "题目检索项目");
+    projectId = await projectIdByName(page, projectName);
+    const document = await uploadFixtureAndWait(page, projectId, "tests/fixtures/text-layer-material.pdf", "text-layer-material.pdf");
+
+    await page.route(
+      `${apiUrl}/projects/${projectId}/questions`,
+      async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        await route.continue();
+      },
+      { times: 1 }
+    );
+    const question = readFileSync(resolve("tests/fixtures/question.txt"), "utf-8").trim();
+    await page.getByTestId("question-text").fill(question);
+    const submitButton = page.getByRole("button", { name: "查找资料依据" });
+    const responsePromise = page.waitForResponse(
+      (response) => response.url() === `${apiUrl}/projects/${projectId}/questions` && response.request().method() === "POST"
+    );
+    await submitButton.click();
+    await expect(submitButton).toBeDisabled();
+    await expect(page.getByTestId("question-loading")).toContainText("正在检索来源");
+
+    const response = await responsePromise;
+    expect(response.status()).toBe(200);
+    const body = (await response.json()) as QuestionDetail;
+    expect(body.status).toBe("completed");
+    expect(body.failure_code).toBeNull();
+    expect(body.failure_reason).toBeNull();
+    expect(body.matches.length).toBeGreaterThan(0);
+    expect(body.matches.every((match) => match.document_id === document.id)).toBe(true);
+    expect(body.matches.every((match) => ["强相关", "可参考", "低置信"].includes(match.confidence_label))).toBe(true);
+
+    await expect(page.getByText("pgvector 相似度").first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("question-context-toolbar")).toContainText(question);
+    await expect(page.getByTestId("source-card").first()).toContainText("text-layer-material.pdf");
+    await expect(page.getByTestId("source-card").first().getByTestId("source-confidence-pill")).toBeVisible();
+    await expect(page.getByTestId("no-source-actions")).toHaveCount(0);
+  } finally {
+    if (projectId !== null) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    } else if (projectName !== null) {
+      const projectsResponse = await page.request.get(`${apiUrl}/projects`);
+      if (projectsResponse.ok()) {
+        const projects = (await projectsResponse.json()) as Project[];
+        const project = projects.find((item) => item.name === projectName);
+        if (project) {
+          const deleteResponse = await page.request.delete(`${apiUrl}/projects/${project.id}`);
+          expect([200, 404]).toContain(deleteResponse.status());
+        }
+      }
+    }
+  }
+});
+
+test("v020-question-no-source：无可靠来源不展示伪答案并提供行动入口", async ({ page }) => {
+  let projectId: number | null = null;
+  let projectName: string | null = null;
+  try {
+    await page.goto("/");
+    projectName = await createProject(page, "无可靠来源检索项目");
+    projectId = await projectIdByName(page, projectName);
+    await uploadFixtureAndWait(page, projectId, "tests/fixtures/text-layer-material.pdf", "text-layer-material.pdf");
+
+    const question = readFileSync(resolve("tests/fixtures/unmatched-question.txt"), "utf-8").trim();
+    await page.getByTestId("question-text").fill(question);
+    const responsePromise = page.waitForResponse(
+      (response) => response.url() === `${apiUrl}/projects/${projectId}/questions` && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "查找资料依据" }).click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(200);
+    const body = (await response.json()) as QuestionDetail;
+    expect(body.status).toBe("no_reliable_source");
+    expect(body.failure_code).toBeNull();
+    expect(body.failure_reason).toBeNull();
+    expect(body.matches).toEqual([]);
+
+    const actions = page.getByTestId("no-source-actions");
+    await expect(actions).toBeVisible({ timeout: 60_000 });
+    await expect(actions).toContainText("未找到可靠来源");
+    await expect(actions).toContainText("当前资料中没有达到可信阈值的来源片段。");
+    await expect(actions.getByRole("button")).toHaveCount(3);
+    await expect(actions.getByRole("button", { name: /扩大资料范围/ })).toBeVisible();
+    await expect(actions.getByRole("button", { name: /检查资料索引/ })).toBeVisible();
+    await expect(actions.getByRole("button", { name: /修改题目表述/ })).toBeVisible();
+    await expect(page.getByTestId("source-card")).toHaveCount(0);
+    await expect(page.getByText("pgvector 相似度")).toHaveCount(0);
   } finally {
     if (projectId !== null) {
       const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
