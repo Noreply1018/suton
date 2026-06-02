@@ -108,6 +108,11 @@ else ifeq ($(CHECK),visual-evidence-manifest)
 	uv run --project backend python scripts/verify_visual_gate.py
 else ifeq ($(CHECK),aesthetic-audit-record)
 	uv run --project backend python scripts/verify_visual_gate.py
+else ifeq ($(CHECK),visual-system)
+	$(MAKE) verify-visual CHECK=screenshot-matrix
+	$(MAKE) verify-visual CHECK=visual-hard-errors
+	$(MAKE) verify-visual CHECK=visual-evidence-manifest
+	$(MAKE) verify-visual CHECK=aesthetic-audit-record
 else
 	@if [[ "$$CHECK" != "screenshot-matrix" && "$$CHECK" != "source-page-nav" && "$$CHECK" != "current-context" && "$$CHECK" != "focus-mode" && "$$CHECK" != "workspace-breakpoints" && "$$CHECK" != "visual-hard-errors" && "$$CHECK" != "source-reader-mobile" && "$$CHECK" != "upload-indeterminate-progress" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "legacy-frontend-removed" && "$$CHECK" != "mobile-workspace" && "$$CHECK" != "question-history-long-text" && "$$CHECK" != "no-source-actions" && "$$CHECK" != "long-lists" ]]; then \
 		echo "unsupported visual CHECK: $$CHECK"; exit 2; \
