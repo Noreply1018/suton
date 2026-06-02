@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import subprocess
 import runpy
 import shutil
 import time
+
+import psycopg
+from psycopg import sql
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
+from psycopg.rows import dict_row
 
 import app.processing as processing_module
 from app.config import settings
@@ -149,6 +155,7 @@ def check_v020_schema() -> None:
         },
     }
     required_constraints = {
+        "projects_name_check",
         "documents_status_check",
         "documents_text_quality_check",
         "documents_processing_stage_check",
@@ -173,6 +180,7 @@ def check_v020_schema() -> None:
         ("question_matches", "document_id", "documents"),
     }
     expected_constraint_fragments = {
+        "projects_name_check": ["btrim", "80"],
         "documents_status_check": ["uploaded", "processing", "completed", "failed", "unsupported", "deleting"],
         "documents_text_quality_check": ["good", "fair", "poor", "unsearchable"],
         "documents_processing_stage_check": ["uploaded", "extracting_text", "chunking", "embedding", "indexing", "completed", "failed"],
@@ -371,6 +379,7 @@ def check_v020_schema() -> None:
     missing_foreign_keys = required_foreign_keys - present_foreign_keys
     require(not missing_foreign_keys, f"missing v0.2.0 foreign keys: {sorted(missing_foreign_keys)}")
     not_null_columns = {(row["table_name"], row["column_name"]) for row in not_null_rows}
+    require(("projects", "name") in not_null_columns, "projects.name must be NOT NULL")
     require(("question_matches", "document_id") in not_null_columns, "question_matches.document_id must be NOT NULL")
     require(("question_matches", "page_no") in not_null_columns, "question_matches.page_no must be NOT NULL")
     require(unique_index_count == 1, "projects(workspace_id, name) unique index missing")
@@ -439,6 +448,149 @@ def check_v020_project_name_migration() -> None:
     require(invalid_names == 0, "migrated projects contain empty, overlong, or untrimmed names")
     require(duplicate_names == 0, "migrated projects contain duplicate names within workspace")
     require(missing_workspace == 0, "migrated projects are missing workspace_id or updated_at")
+    check_v020_v010_project_name_sample_migration()
+
+
+def database_url_for_dbname(dbname: str) -> str:
+    info = conninfo_to_dict(settings.database_url)
+    info["dbname"] = dbname
+    return make_conninfo(**info)
+
+
+def check_v020_v010_project_name_sample_migration() -> None:
+    temp_db = f"suton_v020_migration_{os.getpid()}_{time.time_ns()}"
+    admin_url = settings.database_url
+    temp_url = database_url_for_dbname(temp_db)
+    expected_names = {
+        1: "高性能计算期末",
+        2: "迁移项目 2",
+        3: "迁移项目 3",
+        4: "课" * 80,
+        5: "重复项目",
+        6: "重复项目（迁移 2）",
+        7: "重复项目（迁移 3）",
+        8: "长" * 80,
+        9: ("长" * 74) + "（迁移 2）",
+    }
+    try:
+        with psycopg.connect(admin_url, autocommit=True) as admin_conn:
+            admin_conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(temp_db)))
+
+        with psycopg.connect(temp_url) as conn:
+            conn.execute(
+                """
+                CREATE TABLE projects (
+                  id BIGINT PRIMARY KEY,
+                  name TEXT,
+                  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            sample_rows = [
+                (1, "  高性能计算期末  "),
+                (2, ""),
+                (3, None),
+                (4, "课" * 90),
+                (5, "重复项目"),
+                (6, " 重复项目 "),
+                (7, "重复项目"),
+                (8, "长" * 80),
+                (9, "长" * 80),
+            ]
+            for project_id, name in sample_rows:
+                conn.execute(
+                    "INSERT INTO projects (id, name, created_at) VALUES (%s, %s, '2026-01-01 00:00:00+00')",
+                    (project_id, name),
+                )
+            conn.commit()
+
+        result = subprocess.run(
+            ["uv", "run", "--project", "backend", "python", "scripts/migrate.py"],
+            check=False,
+            env={**os.environ, "DATABASE_URL": temp_url},
+            capture_output=True,
+            text=True,
+        )
+        require(result.returncode == 0, f"v0.1.0 sample migration failed: stdout={result.stdout!r} stderr={result.stderr!r}")
+
+        with psycopg.connect(temp_url, row_factory=dict_row) as conn:
+            rows = conn.execute("SELECT id, workspace_id, name, created_at, updated_at FROM projects ORDER BY id").fetchall()
+            tables = {
+                row["table_name"]
+                for row in conn.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                    """
+                ).fetchall()
+            }
+            constraints = {row["constraint_name"] for row in conn.execute("SELECT constraint_name FROM information_schema.table_constraints WHERE table_name = 'projects'").fetchall()}
+            unique_index_count = conn.execute(
+                """
+                SELECT COUNT(*) AS value
+                FROM pg_indexes
+                WHERE tablename = 'projects'
+                  AND indexname = 'projects_workspace_name_unique'
+                  AND indexdef ILIKE '%workspace_id%'
+                  AND indexdef ILIKE '%name%'
+                """
+            ).fetchone()["value"]
+            duplicate_count = conn.execute(
+                """
+                SELECT COUNT(*) AS value
+                FROM (
+                  SELECT workspace_id, name
+                  FROM projects
+                  GROUP BY workspace_id, name
+                  HAVING COUNT(*) > 1
+                ) duplicates
+                """
+            ).fetchone()["value"]
+            invalid_count = conn.execute(
+                """
+                SELECT COUNT(*) AS value
+                FROM projects
+                WHERE workspace_id <> 'local-default'
+                   OR workspace_id IS NULL
+                   OR updated_at IS NULL
+                   OR name IS NULL
+                   OR name <> btrim(name)
+                   OR length(name) < 1
+                   OR length(name) > 80
+                """
+            ).fetchone()["value"]
+            null_name_rejected = False
+            try:
+                conn.execute("INSERT INTO projects (id, name) VALUES (100, NULL)")
+            except psycopg.Error:
+                null_name_rejected = True
+                conn.rollback()
+            duplicate_rejected = False
+            try:
+                conn.execute("INSERT INTO projects (id, name) VALUES (101, '重复项目')")
+            except psycopg.Error:
+                duplicate_rejected = True
+                conn.rollback()
+            untrimmed_rejected = False
+            try:
+                conn.execute("INSERT INTO projects (id, name) VALUES (102, ' 未裁剪 ')")
+            except psycopg.Error:
+                untrimmed_rejected = True
+                conn.rollback()
+
+        require({row["id"]: row["name"] for row in rows} == expected_names, "v0.1.0 sample migration project names mismatch")
+        require({"projects", "documents", "document_pages", "chunks", "questions", "question_matches"}.issubset(tables), "v0.1.0 sample migration did not create required tables")
+        require("projects_name_check" in constraints, "v0.1.0 sample migration did not add projects_name_check")
+        require(unique_index_count == 1, "v0.1.0 sample migration did not add workspace/name unique index")
+        require(duplicate_count == 0, "v0.1.0 sample migration left duplicate workspace/name projects")
+        require(invalid_count == 0, "v0.1.0 sample migration left invalid project rows")
+        require(null_name_rejected, "v0.1.0 sample migration did not enforce project name NOT NULL")
+        require(duplicate_rejected, "v0.1.0 sample migration did not enforce workspace/name uniqueness")
+        require(untrimmed_rejected, "v0.1.0 sample migration did not enforce trimmed project names")
+    finally:
+        with psycopg.connect(admin_url, autocommit=True) as admin_conn:
+            admin_conn.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(temp_db)))
 
 
 def check_v020_document_health_fields() -> None:

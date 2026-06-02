@@ -36,6 +36,9 @@ def normalize_project_names() -> None:
                 updates.append((candidate, project_id))
         for name, project_id in updates:
             conn.execute("UPDATE projects SET name = %s WHERE id = %s", (name, project_id))
+        conn.execute("ALTER TABLE projects ALTER COLUMN name SET NOT NULL")
+        conn.execute("ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_name_check")
+        conn.execute("ALTER TABLE projects ADD CONSTRAINT projects_name_check CHECK (length(btrim(name)) > 0 AND length(name) <= 80 AND name = btrim(name))")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS projects_workspace_name_unique ON projects (workspace_id, name)")
         conn.commit()
 
