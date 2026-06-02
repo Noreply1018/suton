@@ -107,6 +107,18 @@ type LongListsSeed = {
   question_ids: number[];
 };
 
+type UploadedDocument = {
+  id: number;
+  filename: string;
+  status: string;
+  processing_stage: string;
+  failed_stage: string | null;
+  failure_code: string | null;
+  failure_reason: string | null;
+  chunk_count: number;
+  searchable: boolean;
+};
+
 type VisualEvidenceRecord = {
   state: string;
   viewport: string;
@@ -495,6 +507,19 @@ async function installIndeterminateUploadProbe(page: Page) {
       return originalSend.call(xhr, body);
     };
   });
+}
+
+async function installUploadSendDelayProbe(page: Page, delayMs = 800) {
+  await page.addInitScript((delay) => {
+    const originalSend = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function patchedSend(body?: Document | XMLHttpRequestBodyInit | null) {
+      if (body instanceof FormData && Array.from(body.keys()).includes("file")) {
+        setTimeout(() => originalSend.call(this, body), delay);
+        return;
+      }
+      return originalSend.call(this, body);
+    };
+  }, delayMs);
 }
 
 async function submitQuestionWithScopeOverride(page: Page, projectId: number, documentIds: number[]) {
@@ -2202,6 +2227,70 @@ test("v020-upload-indeterminate-progress：上传字节不可计算时展示非�
     if (projectId) {
       const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
       expect([200, 404]).toContain(deleteResponse.status());
+    }
+  }
+});
+
+test("v020-processing-progress：真实上传后处理轨道最终完成", async ({ page }) => {
+  await installUploadSendDelayProbe(page);
+  let projectId: number | null = null;
+  let projectName: string | null = null;
+  try {
+    await page.goto("/");
+    projectName = await createProject(page, "正常处理进度项目");
+    projectId = await projectIdByName(page, projectName);
+
+    const uploadResponsePromise = page.waitForResponse(
+      (response) => response.url() === `${apiUrl}/projects/${projectId}/documents` && response.request().method() === "POST"
+    );
+    await page.getByTestId("document-file").setInputFiles(resolve("tests/fixtures/text-layer-material.pdf"));
+
+    const progressCard = page.getByTestId("upload-progress-card");
+    await expect(progressCard).toBeVisible();
+    await expect(page.getByTestId("upload-paper-thumbnail")).toHaveCSS("width", "32px");
+    await expect(page.getByTestId("upload-paper-thumbnail")).toHaveCSS("height", "42px");
+    await expect(page.getByTestId("upload-progress-filename")).toContainText("text-layer-material.pdf");
+    await expect(progressCard).not.toContainText("%");
+
+    const uploadResponse = await uploadResponsePromise;
+    expect(uploadResponse.status()).toBe(200);
+    const uploadedDocument = (await uploadResponse.json()) as UploadedDocument;
+    expect(uploadedDocument.filename).toBe("text-layer-material.pdf");
+
+    await expect(progressCard).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByTestId("material-library").getByText("text-layer-material.pdf")).toBeVisible();
+    const track = page.getByTestId(`processing-track-${uploadedDocument.id}`);
+    await expect(track).toBeVisible();
+    for (const label of ["上传完成", "提取文字", "切块", "生成 embedding", "建立索引", "完成"]) {
+      await expect(track).toContainText(label);
+    }
+
+    await expect(page.getByTestId("document-status").filter({ hasText: "完成" })).toBeVisible({ timeout: 120_000 });
+    await expect(track.getByTestId("processing-stage-node-completed")).toContainText("完成");
+    const documentResponse = await page.request.get(`${apiUrl}/documents/${uploadedDocument.id}`);
+    expect(documentResponse.status()).toBe(200);
+    const completedDocument = (await documentResponse.json()) as UploadedDocument;
+    expect(completedDocument.status).toBe("completed");
+    expect(completedDocument.processing_stage).toBe("completed");
+    expect(completedDocument.failed_stage).toBeNull();
+    expect(completedDocument.failure_code).toBeNull();
+    expect(completedDocument.failure_reason).toBeNull();
+    expect(completedDocument.searchable).toBe(true);
+    expect(completedDocument.chunk_count).toBeGreaterThan(0);
+  } finally {
+    if (projectId) {
+      const deleteResponse = await page.request.delete(`${apiUrl}/projects/${projectId}`);
+      expect([200, 404]).toContain(deleteResponse.status());
+    } else if (projectName !== null) {
+      const projectsResponse = await page.request.get(`${apiUrl}/projects`);
+      if (projectsResponse.ok()) {
+        const projects = (await projectsResponse.json()) as Project[];
+        const project = projects.find((item) => item.name === projectName);
+        if (project) {
+          const deleteResponse = await page.request.delete(`${apiUrl}/projects/${project.id}`);
+          expect([200, 404]).toContain(deleteResponse.status());
+        }
+      }
     }
   }
 });
