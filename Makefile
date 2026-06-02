@@ -114,7 +114,7 @@ else ifeq ($(CHECK),visual-system)
 	$(MAKE) verify-visual CHECK=visual-evidence-manifest
 	$(MAKE) verify-visual CHECK=aesthetic-audit-record
 else
-	@if [[ "$$CHECK" != "screenshot-matrix" && "$$CHECK" != "source-page-nav" && "$$CHECK" != "current-context" && "$$CHECK" != "focus-mode" && "$$CHECK" != "workspace-breakpoints" && "$$CHECK" != "visual-hard-errors" && "$$CHECK" != "source-reader-mobile" && "$$CHECK" != "upload-indeterminate-progress" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "legacy-frontend-removed" && "$$CHECK" != "mobile-workspace" && "$$CHECK" != "question-history-long-text" && "$$CHECK" != "no-source-actions" && "$$CHECK" != "long-lists" ]]; then \
+	@if [[ "$$CHECK" != "screenshot-matrix" && "$$CHECK" != "source-page-nav" && "$$CHECK" != "current-context" && "$$CHECK" != "focus-mode" && "$$CHECK" != "workspace-breakpoints" && "$$CHECK" != "visual-hard-errors" && "$$CHECK" != "source-reader-mobile" && "$$CHECK" != "upload-indeterminate-progress" && "$$CHECK" != "processing-progress-visual" && "$$CHECK" != "first-empty-project" && "$$CHECK" != "legacy-copy-removed" && "$$CHECK" != "legacy-frontend-removed" && "$$CHECK" != "mobile-workspace" && "$$CHECK" != "question-history-long-text" && "$$CHECK" != "no-source-actions" && "$$CHECK" != "long-lists" ]]; then \
 		echo "unsupported visual CHECK: $$CHECK"; exit 2; \
 	fi
 	uv run --project backend python scripts/dev_check.py --skip-embedding
@@ -129,7 +129,7 @@ else
 	 cleanup() { kill -TERM -- -$$worker_pid -$$api_pid -$$web_pid 2>/dev/null || true; wait $$worker_pid $$api_pid $$web_pid 2>/dev/null || true; }; \
 	 trap cleanup INT TERM EXIT; \
 	 uv run --project backend python scripts/wait_http.py "$$api_url/health" "$$web_url" && \
-	 if [[ "$$CHECK" == "screenshot-matrix" ]]; then visual_grep="visual-screenshot-matrix"; elif [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; elif [[ "$$CHECK" == "current-context" ]]; then visual_grep="visual-current-context"; elif [[ "$$CHECK" == "focus-mode" ]]; then visual_grep="visual-focus-mode"; elif [[ "$$CHECK" == "workspace-breakpoints" ]]; then visual_grep="visual-workspace-breakpoints"; elif [[ "$$CHECK" == "visual-hard-errors" ]]; then visual_grep="visual-hard-errors"; elif [[ "$$CHECK" == "source-reader-mobile" ]]; then visual_grep="visual-source-reader-mobile"; elif [[ "$$CHECK" == "upload-indeterminate-progress" ]]; then visual_grep="visual-upload-indeterminate-progress"; elif [[ "$$CHECK" == "first-empty-project" ]]; then visual_grep="visual-first-empty-project"; elif [[ "$$CHECK" == "legacy-copy-removed" ]]; then visual_grep="visual-legacy-copy-removed"; elif [[ "$$CHECK" == "legacy-frontend-removed" ]]; then visual_grep="visual-legacy-frontend-removed"; elif [[ "$$CHECK" == "question-history-long-text" ]]; then visual_grep="visual-question-history-long-text"; elif [[ "$$CHECK" == "no-source-actions" ]]; then visual_grep="visual-no-source-actions"; elif [[ "$$CHECK" == "long-lists" ]]; then visual_grep="visual-long-lists"; else visual_grep="visual-mobile-workspace"; fi; \
+	 if [[ "$$CHECK" == "screenshot-matrix" ]]; then visual_grep="visual-screenshot-matrix"; elif [[ "$$CHECK" == "source-page-nav" ]]; then visual_grep="visual-source-page-nav"; elif [[ "$$CHECK" == "current-context" ]]; then visual_grep="visual-current-context"; elif [[ "$$CHECK" == "focus-mode" ]]; then visual_grep="visual-focus-mode"; elif [[ "$$CHECK" == "workspace-breakpoints" ]]; then visual_grep="visual-workspace-breakpoints"; elif [[ "$$CHECK" == "visual-hard-errors" ]]; then visual_grep="visual-hard-errors"; elif [[ "$$CHECK" == "source-reader-mobile" ]]; then visual_grep="visual-source-reader-mobile"; elif [[ "$$CHECK" == "upload-indeterminate-progress" ]]; then visual_grep="visual-upload-indeterminate-progress"; elif [[ "$$CHECK" == "processing-progress-visual" ]]; then visual_grep="visual-processing-progress-visual"; elif [[ "$$CHECK" == "first-empty-project" ]]; then visual_grep="visual-first-empty-project"; elif [[ "$$CHECK" == "legacy-copy-removed" ]]; then visual_grep="visual-legacy-copy-removed"; elif [[ "$$CHECK" == "legacy-frontend-removed" ]]; then visual_grep="visual-legacy-frontend-removed"; elif [[ "$$CHECK" == "question-history-long-text" ]]; then visual_grep="visual-question-history-long-text"; elif [[ "$$CHECK" == "no-source-actions" ]]; then visual_grep="visual-no-source-actions"; elif [[ "$$CHECK" == "long-lists" ]]; then visual_grep="visual-long-lists"; else visual_grep="visual-mobile-workspace"; fi; \
 	 E2E_BASE_URL="$$web_url" NEXT_PUBLIC_API_URL="$$api_url" pnpm exec playwright test --grep "$$visual_grep"; status=$$?; cleanup; exit $$status)
 endif
 
@@ -156,6 +156,7 @@ v020-db-test:
 	CHECK=v020-document-reprocess-no-duplicates $(MAKE) verify-db
 	CHECK=v020-processing-failure-fields $(MAKE) verify-db
 	CHECK=v020-processing-embedding-failure-stage $(MAKE) verify-db
+	CHECK=v020-processing-stages $(MAKE) verify-db
 	CHECK=v020-source-detail-fields $(MAKE) verify-db
 	CHECK=v020-question-research-consistency $(MAKE) verify-db
 	CHECK=v020-reprocess-research-consistency $(MAKE) verify-db

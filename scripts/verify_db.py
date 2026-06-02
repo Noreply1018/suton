@@ -6,6 +6,7 @@ import runpy
 import shutil
 import time
 
+import app.processing as processing_module
 from app.config import settings
 from app.db import connect, vector_literal
 from app.processing import (
@@ -633,6 +634,92 @@ def check_v020_processing_embedding_failure_stage() -> None:
         require(chunk_count == 0, "embedding-failed document must not persist chunks without embeddings")
     finally:
         object.__setattr__(settings, "dashscope_api_key", original_key)
+        if project_id is not None:
+            with connect() as conn:
+                conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
+                conn.commit()
+
+
+def check_v020_processing_stages() -> None:
+    suffix = f"{os.getpid()}-{time.time_ns()}"
+    fixture_path = Path("tests/fixtures/text-layer-material.pdf")
+    require(fixture_path.exists(), f"text-layer PDF fixture not found: {fixture_path}")
+    project_id: int | None = None
+    document_id: int | None = None
+    original_embed_texts = processing_module.embed_texts
+    original_vector_literal = processing_module.vector_literal
+    observed_embedding_stage = False
+    observed_indexing_stage = False
+
+    def fake_embed_texts(texts: list[str]) -> list[list[float]]:
+        nonlocal observed_embedding_stage
+        require(texts, "processing stages check did not produce candidate chunks")
+        require(document_id is not None, "processing stages check document_id missing")
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM documents WHERE id = %s", (document_id,)).fetchone()
+            page_count = conn.execute("SELECT COUNT(*) AS value FROM document_pages WHERE document_id = %s", (document_id,)).fetchone()["value"]
+            chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (document_id,)).fetchone()["value"]
+        require(row["status"] == "processing", f"embedding-stage status mismatch: {row['status']}")
+        require(row["processing_stage"] == "embedding", f"embedding-stage processing_stage mismatch: {row['processing_stage']}")
+        require(row["page_count"] == 57, f"embedding-stage page_count mismatch: {row['page_count']}")
+        require(row["extractable_page_count"] > 0, "embedding-stage extractable_page_count was not persisted")
+        require(row["chunk_count"] == len(texts), f"embedding-stage chunk_count mismatch: {row['chunk_count']} != {len(texts)}")
+        require(row["searchable"] is False, "embedding-stage document must not be searchable before indexing")
+        require(page_count > 0, "embedding-stage document_pages were not persisted")
+        require(chunk_count == 0, "embedding-stage chunks must not be persisted before embeddings return")
+        observed_embedding_stage = True
+        return [[1.0] + [0.0] * (settings.embedding_dimension - 1) for _ in texts]
+
+    def checking_vector_literal(embedding: list[float]) -> str:
+        nonlocal observed_indexing_stage
+        if not observed_indexing_stage:
+            require(document_id is not None, "processing stages check document_id missing")
+            with connect() as conn:
+                row = conn.execute("SELECT status, processing_stage FROM documents WHERE id = %s", (document_id,)).fetchone()
+                chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (document_id,)).fetchone()["value"]
+            require(row["status"] == "processing", f"indexing-stage status mismatch: {row['status']}")
+            require(row["processing_stage"] == "indexing", f"indexing-stage processing_stage mismatch: {row['processing_stage']}")
+            require(chunk_count == 0, "indexing-stage chunks must not exist before chunk insert transaction")
+            observed_indexing_stage = True
+        return original_vector_literal(embedding)
+
+    try:
+        with connect() as conn:
+            project = conn.execute("INSERT INTO projects (name) VALUES (%s) RETURNING id", (f"v020-processing-stages-{suffix}",)).fetchone()
+            project_id = int(project["id"])
+            document = conn.execute(
+                """
+                INSERT INTO documents (project_id, filename, content_type, storage_path, status, processing_stage)
+                VALUES (%s, 'text-layer-material.pdf', 'application/pdf', %s, 'uploaded', 'uploaded')
+                RETURNING id
+                """,
+                (project_id, str(fixture_path)),
+            ).fetchone()
+            document_id = int(document["id"])
+            conn.commit()
+
+        processing_module.embed_texts = fake_embed_texts
+        processing_module.vector_literal = checking_vector_literal
+        process_document(document_id)
+
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM documents WHERE id = %s", (document_id,)).fetchone()
+            page_count = conn.execute("SELECT COUNT(*) AS value FROM document_pages WHERE document_id = %s", (document_id,)).fetchone()["value"]
+            chunk_count = conn.execute("SELECT COUNT(*) AS value FROM chunks WHERE document_id = %s", (document_id,)).fetchone()["value"]
+        require(observed_embedding_stage, "processing stages check did not observe embedding stage")
+        require(observed_indexing_stage, "processing stages check did not observe indexing stage")
+        require(row["status"] == "completed", f"completed status mismatch: {row['status']}")
+        require(row["processing_stage"] == "completed", f"completed processing_stage mismatch: {row['processing_stage']}")
+        require(row["failed_stage"] is None, "completed document retained failed_stage")
+        require(row["failure_code"] is None and row["failure_reason"] is None, "completed document retained failure fields")
+        require(row["processed_at"] is not None, "completed document processed_at must be set")
+        require(row["searchable"] is True, "completed text-layer document must be searchable")
+        require(page_count == row["extractable_page_count"], "completed document page row count mismatch")
+        require(chunk_count == row["chunk_count"], "completed document chunk row count mismatch")
+        require(chunk_count > 0, "completed document did not persist chunks")
+    finally:
+        processing_module.embed_texts = original_embed_texts
+        processing_module.vector_literal = original_vector_literal
         if project_id is not None:
             with connect() as conn:
                 conn.execute("DELETE FROM projects WHERE id = %s", (project_id,))
@@ -1758,6 +1845,7 @@ def main() -> None:
         "v020-document-reprocess-no-duplicates": check_v020_document_reprocess_no_duplicates,
         "v020-processing-failure-fields": check_v020_processing_failure_fields,
         "v020-processing-embedding-failure-stage": check_v020_processing_embedding_failure_stage,
+        "v020-processing-stages": check_v020_processing_stages,
         "v020-source-detail-fields": check_v020_source_detail_fields,
         "project-created": check_project_created,
         "project-summary": check_project_summary,
